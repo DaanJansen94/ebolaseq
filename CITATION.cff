@@ -1,4 +1,4 @@
-cff-version: 1.2.0
+echo "cff-version: 1.2.0
 message: "If you use this software, please cite it as follows:"
 authors:
   - family-names: Jansen
@@ -10,12 +10,8 @@ authors:
 title: "EbolaSeq"
 version: v0.1.0
 license: MIT
+doi: 10.XXXX/XXXXXX
 url: https://github.com/DaanJansen94/ebolaseq
 date-released: "2024-02-05"
 abstract: "A command-line tool for downloading and processing Ebola virus sequences from GenBank for phylogenetic analysis."
-keywords:
-  - ebola
-  - sequence analysis
-  - phylogenetics
-  - BEAST
-  - bioinformatics 
+" > CITATION.cff
