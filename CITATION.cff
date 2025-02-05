@@ -11,7 +11,7 @@ title: "EbolaSeq"
 version: v0.1.0
 license: MIT
 url: https://github.com/DaanJansen94/ebolaseq
-date-released: "2024-02-01"
+date-released: "2024-02-05"
 abstract: "A command-line tool for downloading and processing Ebola virus sequences from GenBank for phylogenetic analysis."
 keywords:
   - ebola
