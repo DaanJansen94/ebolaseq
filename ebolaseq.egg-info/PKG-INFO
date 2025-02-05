@@ -31,7 +31,7 @@ pip install .
 
 ### Basic Command
 ```bash
-ebolaseq
+ebolaseq -output_loc <output_directory>
 ```
 
 ### Interactive Options
