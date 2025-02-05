@@ -381,8 +381,7 @@ def create_beast_header(record_id, metadata_choice):
     
     return record_id  # Return original if can't convert
 
-def main(output_location="."):
-    """Main function that ties together the core functionality."""
+def main():
     # Available virus choices (store with underscores but display without)
     virus_options = {
         '1': 'Zaire ebolavirus',
@@ -471,17 +470,14 @@ def main(output_location="."):
         print("2. Yes (both standard FASTA and BEAST format)")
         beast_choice = input("\nSelect option (1-2): ")
 
-    # Modify file paths to use output_location
-    genbank_file = os.path.join(output_location, "downloaded_genomes.gb")
-    
     # Download sequences with all parameters
     print(f"Downloading sequences for {virus_choice}...")
     genbank_file, query = download_sequences(virus_choice, genome_choice, host_choice, metadata_choice, completeness_threshold)
     
     if genbank_file is None:
         print("\nExiting due to no sequences found.")
-        if os.path.exists(genbank_file):
-            os.remove(genbank_file)
+        if os.path.exists("downloaded_genomes.gb"):
+            os.remove("downloaded_genomes.gb")
         return
 
     # Continue with the rest of your original main function...

@@ -25,7 +25,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "ebolaseq=ebolaseq.cli:main",
+            "ebolaseq=ebolaseq.cli:cli_main",
         ],
     },
 ) 

@@ -1,0 +1,2 @@
+[console_scripts]
+ebolaseq = ebolaseq.cli:cli_main
