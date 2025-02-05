@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as follows:"
+authors:
+  - family-names: Jansen
+    given-names: Daan
+    orcid: https://orcid.org/0000-0003-4612-6891
+  - family-names: Vercauteren
+    given-names: Koen
+    orcid: https://orcid.org/0000-0003-1472-9938
+title: "EbolaSeq"
+version: v0.1.0
+license: MIT
+url: https://github.com/DaanJansen94/ebolaseq
+date-released: "2024-02-01"
+abstract: "A command-line tool for downloading and processing Ebola virus sequences from GenBank for phylogenetic analysis."
+keywords:
+  - ebola
+  - sequence analysis
+  - phylogenetics
+  - BEAST
+  - bioinformatics 
