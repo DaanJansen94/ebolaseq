@@ -150,6 +150,47 @@ def get_outgroup_reference(virus_choice):
 
 # ... (copy ALL your original functions exactly as they were)
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
+    parser.add_argument('--output-dir', type=str, required=True, 
+                       help='Output directory for results')
+    parser.add_argument('--consensus-file', type=str, 
+                       help='Path to consensus FASTA file to include')
+    parser.add_argument('--phylogeny', action='store_true', 
+                       help='Create phylogenetic tree using IQTree2')
+    parser.add_argument('--remove', type=str,
+                       help='Path to text file containing headers/accession IDs to remove')
+    return parser.parse_args()
+
+def get_sequences_to_remove(remove_file):
+    """Read list of sequences to remove from file."""
+    # Get absolute path
+    remove_file = os.path.abspath(remove_file)
+    
+    if not os.path.exists(remove_file):
+        print(f"Warning: Remove file {remove_file} not found")
+        return set()
+    
+    to_remove = set()
+    try:
+        with open(remove_file) as f:
+            for line in f:
+                # Strip whitespace and ignore empty lines or comments
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    to_remove.add(line)
+        
+        if to_remove:
+            print(f"Found {len(to_remove)} sequences to remove")
+        else:
+            print("No sequences to remove found in file")
+            
+    except Exception as e:
+        print(f"Error reading remove file: {str(e)}")
+        return set()
+    
+    return to_remove
+
 def main(args):
     # Make these dictionaries global so they're accessible
     global virus_options, virus_processing_names
@@ -260,6 +301,11 @@ def main(args):
         
     print(f"\nTotal records found: {len(records)}")
     
+    # Get sequences to remove if file provided
+    sequences_to_remove = set()
+    if args.remove:
+        sequences_to_remove = get_sequences_to_remove(args.remove)
+    
     # Get summary information
     location_counts, unknown_count, oldest_record, oldest_year, total_sequences = summarize_locations(records, completeness_threshold, virus_choice)
     
@@ -296,19 +342,29 @@ def main(args):
     
     # Process sequences and write FASTA files
     sequences_written = 0
+    sequences_removed = 0
     fasta_path = os.path.join("FASTA", fasta_filename)
     with open(fasta_path, "w") as output:
         for record in records:
             try:
-                if record.id != "MF102255.1":  # Skip known problematic sequence
-                    formatted_id = format_record_id(record, virus_choice, metadata_choice)
-                    if formatted_id:
-                        record.id = formatted_id
-                        record.description = ""
-                        SeqIO.write(record, output, "fasta")
-                        sequences_written += 1
+                # Check if sequence should be removed
+                if record.id in sequences_to_remove:
+                    print(f"Removing sequence: {record.id}")
+                    sequences_removed += 1
+                    continue
+                
+                formatted_id = format_record_id(record, virus_choice, metadata_choice)
+                if formatted_id:
+                    record.id = formatted_id
+                    record.description = ""
+                    SeqIO.write(record, output, "fasta")
+                    sequences_written += 1
             except Exception as e:
                 print(f"Error processing record {record.id}: {str(e)}")
+    
+    print(f"\nSequences written: {sequences_written}")
+    if sequences_removed > 0:
+        print(f"Sequences removed: {sequences_removed}")
     
     # Create location file in FASTA directory
     fasta_location_file = os.path.join("FASTA", "location.txt")
@@ -455,14 +511,22 @@ def cli_main():
     """Entry point for command line interface"""
     parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
     parser.add_argument('--output-dir', type=str, required=True, 
-                       help='Output directory for results (use "." for current directory)')
-    parser.add_argument('--consensus-file', type=str, help='Path to consensus FASTA file to include')
-    parser.add_argument('--phylogeny', action='store_true', help='Create phylogenetic tree using IQTree2')
+                       help='Output directory for results')
+    parser.add_argument('--consensus-file', type=str, 
+                       help='Path to consensus FASTA file to include')
+    parser.add_argument('--phylogeny', action='store_true', 
+                       help='Create phylogenetic tree using IQTree2')
+    parser.add_argument('--remove', type=str,
+                       help='Path to text file containing headers/accession IDs to remove')
     
     args = parser.parse_args()
     
-    # Convert '.' to current directory absolute path
+    # Convert paths to absolute paths before changing directory
     output_dir = os.path.abspath(args.output_dir)
+    if args.consensus_file:
+        args.consensus_file = os.path.abspath(args.consensus_file)
+    if args.remove:
+        args.remove = os.path.abspath(args.remove)
     
     # Create output directory if it doesn't exist
     if not os.path.exists(output_dir):
