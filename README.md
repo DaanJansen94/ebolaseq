@@ -199,7 +199,7 @@ Note: BEAST-formatted output files are optionally created when selecting the BEA
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the GPL-3.0 license - see the LICENSE file for details.
 
 ## Contributing
 
