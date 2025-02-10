@@ -6,6 +6,8 @@ import os
 import re
 import datetime
 import time
+import argparse
+import shutil
 
 # Copy ALL your original functions here exactly as they were
 def get_sequence_length(record):
@@ -148,7 +150,7 @@ def get_outgroup_reference(virus_choice):
 
 # ... (copy ALL your original functions exactly as they were)
 
-def main():
+def main(args):
     # Make these dictionaries global so they're accessible
     global virus_options, virus_processing_names
     
@@ -406,28 +408,38 @@ def main():
                 summary.write(f"Location data: BEAST_input/location.txt\n")
     
     try:
-        # Create FASTA directory if it doesn't exist
+        # Create FASTA directory and move files
         os.makedirs("FASTA", exist_ok=True)
         
-        # Move both FASTA files to FASTA directory
+        # Move downloaded FASTA files
         if os.path.exists(fasta_filename):
             os.rename(fasta_filename, os.path.join("FASTA", fasta_filename))
-        
         if os.path.exists(outgroup_filename):
             os.rename(outgroup_filename, os.path.join("FASTA", outgroup_filename))
         
-        # Create location.txt in FASTA directory only if both files exist
+        # Copy consensus file if provided
+        if args.consensus_file:
+            print(f"\nCopying consensus file {args.consensus_file}...")
+            consensus_file = copy_consensus_file(args.consensus_file, "FASTA")
+            if not consensus_file:
+                print("Failed to copy consensus file")
+        
+        # Create location.txt
         fasta_path = os.path.join("FASTA", fasta_filename)
         outgroup_path = os.path.join("FASTA", outgroup_filename)
-        
         if os.path.exists(fasta_path) and os.path.exists(outgroup_path):
             print("Creating location file in FASTA directory...")
             create_fasta_location_file(fasta_path, outgroup_path)
-        else:
-            print("Warning: Cannot create location.txt - one or both FASTA files missing")
+        
+        # Run phylogenetic analysis if requested
+        if args.phylogeny:
+            print("\nStarting phylogenetic analysis...")
+            create_phylogenetic_tree("FASTA")
+            print("Phylogenetic analysis completed!")
             
     except Exception as e:
-        print(f"Error during file operations: {str(e)}")
+        print(f"Error during processing: {str(e)}")
+        raise  # Add this to see full error traceback
     
     # Clean up
     if os.path.exists("downloaded_genomes.gb"):
@@ -441,16 +453,16 @@ def main():
 
 def cli_main():
     """Entry point for command line interface"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='Filter and analyze Ebola virus sequences')
-    parser.add_argument('-output_loc', type=str, required=True, 
+    parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
+    parser.add_argument('--output-dir', type=str, required=True, 
                        help='Output directory for results (use "." for current directory)')
+    parser.add_argument('--consensus-file', type=str, help='Path to consensus FASTA file to include')
+    parser.add_argument('--phylogeny', action='store_true', help='Create phylogenetic tree using IQTree2')
     
     args = parser.parse_args()
     
     # Convert '.' to current directory absolute path
-    output_dir = os.path.abspath(args.output_loc)
+    output_dir = os.path.abspath(args.output_dir)
     
     # Create output directory if it doesn't exist
     if not os.path.exists(output_dir):
@@ -461,8 +473,8 @@ def cli_main():
     os.chdir(output_dir)
     
     try:
-        # Now run the interactive main function
-        main()
+        # Pass the arguments to main
+        main(args)
     finally:
         # Change back to original directory
         os.chdir(original_dir)
@@ -691,40 +703,136 @@ def create_beast_header(record_id, metadata_choice):
     
     return record_id  # Return original if can't convert
 
-def create_fasta_location_file(fasta_file, outgroup_file):
+def create_fasta_location_file(fasta_path, outgroup_path):
     """Create location.txt in FASTA directory based on FASTA headers."""
-    # First check if both files exist
-    if not (os.path.exists(fasta_file) and os.path.exists(outgroup_file)):
-        print("Warning: Cannot create location.txt - one or both FASTA files missing")
-        return
-    
-    # Get headers from main FASTA file
-    headers = []
-    with open(fasta_file) as f:
-        for line in f:
-            if line.startswith('>'):
-                headers.append(line[1:].strip())  # Remove '>' and whitespace
-    
-    # Get header from outgroup FASTA file
-    with open(outgroup_file) as f:
-        for line in f:
-            if line.startswith('>'):
-                headers.append(line[1:].strip())
-                break  # Only need first header from outgroup
-    
-    # Create location.txt
-    fasta_dir = os.path.dirname(fasta_file)
+    fasta_dir = os.path.dirname(fasta_path)
     location_file = os.path.join(fasta_dir, "location.txt")
     
-    with open(location_file, "w") as out:
-        for header in headers:
-            # Extract location from header (assuming format ID/species/location or ID/species/location/date)
-            parts = header.split('/')
-            if len(parts) >= 3:
-                location = parts[2]
-                out.write(f"{header}\t{location}\n")
+    with open(location_file, "w") as loc_file:
+        # Write header first
+        loc_file.write("taxon\tlocation\n")
+        
+        # Process main FASTA file
+        with open(fasta_path) as f:
+            for line in f:
+                if line.startswith('>'):
+                    header = line[1:].strip()
+                    parts = header.split('/')
+                    if len(parts) >= 3:
+                        location = parts[2]
+                        loc_file.write(f"{header}\t{location}\n")
+        
+        # Process outgroup FASTA file
+        with open(outgroup_path) as f:
+            for line in f:
+                if line.startswith('>'):
+                    header = line[1:].strip()
+                    parts = header.split('/')
+                    if len(parts) >= 3:
+                        location = parts[2]
+                        loc_file.write(f"{header}\t{location}\n")
+                    break  # Only need first header from outgroup
+
+def copy_consensus_file(consensus_file, fasta_dir):
+    """Copy consensus FASTA file to the output FASTA directory."""
+    if not os.path.exists(consensus_file):
+        print(f"Warning: Consensus file {consensus_file} not found")
+        return None
     
-    print(f"Created location.txt in {fasta_dir}")
+    filename = os.path.basename(consensus_file)
+    dst = os.path.join(fasta_dir, filename)
+    shutil.copy2(consensus_file, dst)
+    print(f"Copied consensus file: {filename}")
+    return dst
+
+def check_dependencies():
+    """Check if required external tools are available"""
+    dependencies = ['mafft', 'trimal', 'iqtree2']
+    missing = []
+    
+    for tool in dependencies:
+        if subprocess.run(['which', tool], capture_output=True).returncode != 0:
+            missing.append(tool)
+    
+    if missing:
+        print(f"Error: Missing required tools: {', '.join(missing)}")
+        print("Please install these tools and ensure they are in your PATH")
+        sys.exit(1)
+
+def create_phylogenetic_tree(fasta_dir):
+    """Create phylogenetic tree using MAFFT, TrimAl and IQTree2."""
+    print("\nStarting phylogenetic analysis pipeline...")
+    
+    try:
+        # Check dependencies first
+        check_dependencies()
+        
+        # Create output directories
+        mafft_dir = os.path.join(fasta_dir, "MAFFT_output")
+        trimal_dir = os.path.join(fasta_dir, "TrimAl_output")
+        iqtree_dir = os.path.join(fasta_dir, "IQTree_output")
+        
+        os.makedirs(mafft_dir, exist_ok=True)
+        os.makedirs(trimal_dir, exist_ok=True)
+        os.makedirs(iqtree_dir, exist_ok=True)
+        
+        # Concatenate all FASTA files
+        combined_fasta = os.path.join(fasta_dir, "Ebola_Combined.fasta")
+        print(f"Creating combined FASTA file...")
+        with open(combined_fasta, 'w') as outfile:
+            for fasta in os.listdir(fasta_dir):
+                if fasta.endswith(('.fasta', '.fa')) and fasta != "Ebola_Combined.fasta":
+                    fasta_path = os.path.join(fasta_dir, fasta)
+                    with open(fasta_path) as infile:
+                        outfile.write(infile.read())
+        print("Combined FASTA file created")
+        
+        # Run MAFFT alignment
+        aligned_fasta = os.path.join(mafft_dir, "Ebola_Combined_aligned.fasta")
+        print(f"\nRunning MAFFT alignment...")
+        mafft_cmd = f"mafft --thread -1 --auto {combined_fasta} > {aligned_fasta}"
+        result = subprocess.run(mafft_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            print(f"Error during MAFFT alignment: {result.stderr}")
+            return
+        print("MAFFT alignment complete")
+        
+        # Run TrimAl
+        trimmed_fasta = os.path.join(trimal_dir, "Ebola_trimmed.fasta")
+        print(f"\nRunning TrimAl...")
+        trimal_cmd = f"trimal -in {aligned_fasta} -out {trimmed_fasta} -automated1"
+        result = subprocess.run(trimal_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            print(f"Error during TrimAl: {result.stderr}")
+            return
+        print("TrimAl trimming complete")
+        
+        # Run IQTree2
+        print(f"\nRunning IQTree2...")
+        # Change to IQTree directory and copy trimmed file there
+        trimmed_copy = os.path.join(iqtree_dir, "Ebola_trimmed.fasta")
+        shutil.copy2(trimmed_fasta, trimmed_copy)
+        
+        # Run IQTree2 in its directory
+        current_dir = os.getcwd()
+        os.chdir(iqtree_dir)
+        iqtree_cmd = f"iqtree2 -s Ebola_trimmed.fasta -m MFP -bb 10000 -nt AUTO"
+        result = subprocess.run(iqtree_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+        os.chdir(current_dir)  # Change back to original directory
+        
+        if result.returncode != 0:
+            print(f"Error during IQTree2: {result.stderr}")
+            return
+        print("IQTree2 analysis complete")
+        
+        print("\nPhylogenetic analysis pipeline completed successfully!")
+        print(f"\nOutput files:")
+        print(f"- MAFFT alignment: {aligned_fasta}")
+        print(f"- TrimAl output: {trimmed_fasta}")
+        print(f"- IQTree2 results: {iqtree_dir}")
+        
+    except Exception as e:
+        print(f"Error during phylogenetic analysis: {str(e)}")
 
 if __name__ == "__main__":
     cli_main() 
