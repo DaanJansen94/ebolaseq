@@ -264,7 +264,7 @@ def main():
     # Get outgroup reference sequence
     outgroup_record, outgroup_species = get_outgroup_reference(virus_choice)
     
-    # Create output directories
+    # Create output directories and files
     os.makedirs("FASTA", exist_ok=True)
     if beast_choice == '2':
         os.makedirs("BEAST_input", exist_ok=True)
@@ -292,9 +292,10 @@ def main():
         outgroup_record.description = ""
         SeqIO.write(outgroup_record, outgroup_file, "fasta")
     
-    # Process sequences and write to FASTA
+    # Process sequences and write FASTA files
     sequences_written = 0
-    with open(fasta_filename, "w") as output:
+    fasta_path = os.path.join("FASTA", fasta_filename)
+    with open(fasta_path, "w") as output:
         for record in records:
             try:
                 if record.id != "MF102255.1":  # Skip known problematic sequence
@@ -306,6 +307,22 @@ def main():
                         sequences_written += 1
             except Exception as e:
                 print(f"Error processing record {record.id}: {str(e)}")
+    
+    # Create location file in FASTA directory
+    fasta_location_file = os.path.join("FASTA", "location.txt")
+    with open(fasta_location_file, "w") as loc_file:
+        for record in records:
+            if record.id != "MF102255.1":
+                location = get_location(record)
+                if location != "Unknown":
+                    formatted_id = format_record_id(record, virus_choice, metadata_choice)
+                    if formatted_id:
+                        loc_file.write(f"{formatted_id}\t{location}\n")
+        
+        # Add outgroup to location file
+        outgroup_location = "Uganda"
+        formatted_outgroup_id = format_record_id(outgroup_record, outgroup_species, metadata_choice)
+        loc_file.write(f"{formatted_outgroup_id}\t{outgroup_location}\n")
     
     # Create BEAST files if requested
     if beast_choice == '2':
@@ -356,38 +373,20 @@ def main():
     
     # Write summary file
     with open(summary_filename, "w") as summary:
-        summary.write("=== Database Query Information ===\n")
-        summary.write(f"Virus: {virus_display_name}\n")
-        if genome_choice == '2':
-            summary.write(f"Genome type: Partial genomes (≥{completeness_threshold}% complete)\n")
-        else:
-            summary.write(f"Genome type: {genome_options[genome_choice]}\n")
-        summary.write(f"Host: {host_options[host_choice]}\n")
-        summary.write(f"Metadata filter: {metadata_options[metadata_choice]}\n")
-        summary.write(f"Query used: {query}\n\n")
-        
-        # Write suggested root information
-        summary.write("=== Suggested Root Sequence (Oldest) ===\n")
-        if oldest_record:
-            summary.write(f"Oldest sequence ID: {oldest_record.id}\n")
-            summary.write(f"Collection year: {oldest_year}\n")
-            summary.write(f"Location: {get_location(oldest_record)}\n\n")
-        
-        # Write outgroup information
         summary.write("=== Suggested Outgroup (Reference Sequence from Sister Species) ===\n")
         summary.write(f"Species: {outgroup_species}\n")
         summary.write(f"Sequence ID: {outgroup_record.id}\n")
-        summary.write(f"Type: Reference sequence (RefSeq)\n")
-        summary.write(f"File: FASTA/{outgroup_filename}\n\n")
+        summary.write("Type: Reference sequence (RefSeq)\n")
+        summary.write(f"File: FASTA/{os.path.basename(outgroup_filename)}\n")
         
-        # Write location summary
-        summary.write("=== Location Summary (sorted by number of sequences) ===\n")
-        sorted_locations = sorted(location_counts.items(), key=lambda x: (-x[1], x[0]))
-        for location, count in sorted_locations:
-            summary.write(f"{location}: {count} sequences\n")
-        
-        if unknown_count > 0:
-            summary.write(f"Unknown location: {unknown_count} sequences\n")
+        # Add location counts if available
+        if location_counts:
+            summary.write("\n=== Location Summary ===\n")
+            for location, count in sorted(location_counts.items()):
+                summary.write(f"{location}: {count} sequences\n")
+            
+            if unknown_count > 0:
+                summary.write(f"Unknown location: {unknown_count} sequences\n")
         
         summary.write(f"\nTotal sequences in final dataset: {total_sequences}\n")
         
@@ -406,9 +405,29 @@ def main():
             if metadata_choice == '3':
                 summary.write(f"Location data: BEAST_input/location.txt\n")
     
-    # Move files to appropriate directories
-    os.rename(fasta_filename, os.path.join("FASTA", fasta_filename))
-    os.rename(outgroup_filename, os.path.join("FASTA", outgroup_filename))
+    try:
+        # Create FASTA directory if it doesn't exist
+        os.makedirs("FASTA", exist_ok=True)
+        
+        # Move both FASTA files to FASTA directory
+        if os.path.exists(fasta_filename):
+            os.rename(fasta_filename, os.path.join("FASTA", fasta_filename))
+        
+        if os.path.exists(outgroup_filename):
+            os.rename(outgroup_filename, os.path.join("FASTA", outgroup_filename))
+        
+        # Create location.txt in FASTA directory only if both files exist
+        fasta_path = os.path.join("FASTA", fasta_filename)
+        outgroup_path = os.path.join("FASTA", outgroup_filename)
+        
+        if os.path.exists(fasta_path) and os.path.exists(outgroup_path):
+            print("Creating location file in FASTA directory...")
+            create_fasta_location_file(fasta_path, outgroup_path)
+        else:
+            print("Warning: Cannot create location.txt - one or both FASTA files missing")
+            
+    except Exception as e:
+        print(f"Error during file operations: {str(e)}")
     
     # Clean up
     if os.path.exists("downloaded_genomes.gb"):
@@ -671,6 +690,41 @@ def create_beast_header(record_id, metadata_choice):
             return f"{accession}/{location}/{decimal_date}"
     
     return record_id  # Return original if can't convert
+
+def create_fasta_location_file(fasta_file, outgroup_file):
+    """Create location.txt in FASTA directory based on FASTA headers."""
+    # First check if both files exist
+    if not (os.path.exists(fasta_file) and os.path.exists(outgroup_file)):
+        print("Warning: Cannot create location.txt - one or both FASTA files missing")
+        return
+    
+    # Get headers from main FASTA file
+    headers = []
+    with open(fasta_file) as f:
+        for line in f:
+            if line.startswith('>'):
+                headers.append(line[1:].strip())  # Remove '>' and whitespace
+    
+    # Get header from outgroup FASTA file
+    with open(outgroup_file) as f:
+        for line in f:
+            if line.startswith('>'):
+                headers.append(line[1:].strip())
+                break  # Only need first header from outgroup
+    
+    # Create location.txt
+    fasta_dir = os.path.dirname(fasta_file)
+    location_file = os.path.join(fasta_dir, "location.txt")
+    
+    with open(location_file, "w") as out:
+        for header in headers:
+            # Extract location from header (assuming format ID/species/location or ID/species/location/date)
+            parts = header.split('/')
+            if len(parts) >= 3:
+                location = parts[2]
+                out.write(f"{header}\t{location}\n")
+    
+    print(f"Created location.txt in {fasta_dir}")
 
 if __name__ == "__main__":
     cli_main() 
