@@ -13,6 +13,16 @@ cd ebolaseq
 pip install .
 ```
 
+## Re-installation
+
+To reinstall the package with latest changes:
+
+```bash
+cd ebolaseq
+pip uninstall ebolaseq
+pip install .
+```
+
 ## Usage
 
 ### Basic Command
