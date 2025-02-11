@@ -85,6 +85,8 @@ ebolaseq --output-dir <output_directory> [optional arguments]
             --phylogeny
    ```
 
+It is strongly recommended to always use a `remove.txt` file with the `--remove` option when running EbolaSeq. This file should contain sequence IDs that should be excluded from the analysis, particularly sequences obtained from cell culture passages, laboratory-adapted strains, artificially modified sequences, sequences from experimental infections, and other non-natural viral sequences. These sequences can bias analyses as they may not represent natural viral diversity.
+
 ### Input File Formats
 
 1. Consensus file (optional):
