@@ -546,6 +546,15 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
     """Download sequences from GenBank"""
     Entrez.email = "anonymous@example.com"
     
+    # Reference sequence IDs for each virus type
+    reference_sequences = {
+        'Zaire_ebolavirus': 'NC_002549.1',
+        'Sudan_ebolavirus': 'NC_006432.1', 
+        'Bundibugyo_ebolavirus': 'NC_014373.1',
+        'Tai_Forest_ebolavirus': 'NC_014372.1',
+        'Reston_ebolavirus': 'NC_004161.1'
+    }
+
     # Build query with all filters
     query_parts = []
     
@@ -554,7 +563,7 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
         query_parts.append('("Zaire ebolavirus"[organism] OR "Zaire Ebolavirus"[organism] OR "ZEBOV"[All Fields])')
     else:
         query_parts.append(f'"{virus_choice}"[organism]')
-    
+
     # Add host filter with multiple possible formats
     if host_choice == '1':  # Human
         query_parts.append('("Homo sapiens"[host] OR "human"[host]) NOT ("macaque"[host] OR "monkey"[host] OR "Pan troglodytes"[host] OR "Gorilla"[host] OR "bat"[host] OR "Unknown"[host] OR "cynomolgus macaque"[host] OR "cynomolgus_macaque"[host] OR "cynomolgusmacaque"[host] OR "Macaca fascicularis"[host] OR "Macaca mulatta"[host] OR "rhesus"[host])')
@@ -601,6 +610,15 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
     output_file = "downloaded_genomes.gb"
     
     with open(output_file, "w") as out_handle:
+        # First download reference sequence
+        ref_id = reference_sequences[virus_choice]
+        print(f"\nDownloading reference sequence {ref_id}...")
+        ref_handle = Entrez.efetch(db="nucleotide", id=ref_id, rettype="gb", retmode="text")
+        out_handle.write(ref_handle.read())
+        ref_handle.close()
+        time.sleep(1)  # Be nice to NCBI servers
+
+        # Then download the rest of the sequences
         for i in range(0, len(id_list), batch_size):
             batch = id_list[i:i + batch_size]
             print(f"Downloading batch {(i//batch_size)+1} of {(len(id_list)-1)//batch_size + 1}...")
@@ -671,6 +689,10 @@ def format_record_id(record, virus_choice, metadata_choice):
     location = get_location(record)
     date = get_collection_date(record)
     virus_name = virus_choice
+
+    # Manually set location for Zaire ebolavirus reference
+    if base_id == "NC_002549.1":
+        location = "Democratic_Republic_of_the_Congo"
     
     # Always include virus name and location (if available)
     formatted_id = f"{base_id}/{virus_name}"
