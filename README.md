@@ -26,7 +26,6 @@ EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola v
    git clone https://github.com/DaanJansen94/ebolaseq.git
    cd ebolaseq
    pip install .
-   ebolaseq --help
    ```
 
 ## Re-installation
@@ -155,40 +154,6 @@ When running EbolaSeq, you will be prompted to make the following choices:
 
 The tool will then proceed with downloading and processing the sequences based on your choices.
 
-### Output Files and Visualization
-
-After running ebolaseq, you'll find the following key output files:
-
-1. Sequence files:
-   - `<output_dir>/FASTA/filtered_*_complete_1.fasta`: Filtered sequences
-   - `<output_dir>/FASTA/MAFFT_output/Ebola_Combined_aligned.fasta`: MAFFT alignment
-   - `<output_dir>/FASTA/TrimAl_output/Ebola_trimmed.fasta`: Trimmed alignment
-
-2. Tree files (in <output_dir>/FASTA/IQTree_output/):
-   - `Ebola_tree.treefile`: Final phylogenetic tree (Newick format)
-   - `Ebola_tree.iqtree`: IQTree log file with analysis details
-   - `Ebola_tree.contree`: Consensus tree with bootstrap support values
-
-3. Metadata:
-   - `<output_dir>/FASTA/location.txt`: Tab-separated file with sequence locations (for FigTree)
-   - `<output_dir>/BEAST_input/`: Directory containing BEAST-formatted files (optional, created when selecting BEAST output format)
-     - `location.txt`: Location data in BEAST format
-     - Additional BEAST input files for phylogeographic analysis
-
-### Visualizing the Tree
-
-You can visualize the phylogenetic tree using FigTree (available at: http://tree.bio.ed.ac.uk/software/figtree/):
-
-1. Open FigTree and load `Ebola_tree.treefile` from the IQTree_output directory
-2. To color branches by location:
-   - Click on 'File' → 'Import Annotations'
-   - Select either `location.txt` file (from FASTA or BEAST_input directory)
-   - In the sidebar, under 'Appearance', select 'Colour by' → 'location'
-
-This will create a colored tree where branches are grouped by geographical location, helping to visualize the spatial distribution of the virus lineages.
-
-Note: BEAST-formatted output files are optionally created when selecting the BEAST format during the interactive prompts. These files can be used for more detailed phylogeographic analyses in BEAST.
-
 ## Dependencies
 
 - Python ≥ 3.6
@@ -200,7 +165,7 @@ Note: BEAST-formatted output files are optionally created when selecting the BEA
 
 ## License
 
-This project is licensed under the GPL-3.0 license - see the LICENSE file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Contributing
 

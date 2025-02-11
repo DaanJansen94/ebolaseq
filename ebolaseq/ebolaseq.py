@@ -223,9 +223,8 @@ def main(args):
     # Host options
     host_options = {
         '1': 'Human (Homo sapiens)',
-        '2': 'Chimpanzee (Pan troglodytes)',
-        '3': 'Gorilla (Gorilla sp.)',
-        '4': 'All hosts'
+        '2': 'Non-human (all animal hosts)',
+        '3': 'All hosts'
     }
     
     # Show virus menu
@@ -261,7 +260,7 @@ def main(args):
     print("\nHost options:")
     for key, value in host_options.items():
         print(f"{key}. {value}")
-    host_choice = input("\nSelect host (1-4): ")
+    host_choice = input("\nSelect host (1-3): ")
     
     # Show metadata filter options
     print("\nMetadata filter options:")
@@ -319,7 +318,7 @@ def main(args):
     
     # Create output filenames
     genome_type_str = "complete" if genome_choice == '1' else "all"
-    host_str = host_choice if host_choice != '4' else "allhosts"
+    host_str = host_choice if host_choice != '3' else "allhosts"
     base_filename = f"{virus_choice.lower()}_{genome_type_str}_{host_str}"
     fasta_filename = f"filtered_{base_filename}.fasta"
     outgroup_filename = f"outgroup_{outgroup_species.lower()}_{genome_type_str}_{host_str}.fasta"
@@ -557,12 +556,11 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
         query_parts.append(f'"{virus_choice}"[organism]')
     
     # Add host filter with multiple possible formats
-    if host_choice == '1':
-        query_parts.append('("Homo sapiens"[host] OR human[host] OR "Homo sapiens"[Source Host] OR Human[Source Host])')
-    elif host_choice == '2':
-        query_parts.append('("Pan troglodytes"[host] OR chimpanzee[host])')
-    elif host_choice == '3':
-        query_parts.append('("Gorilla"[host] OR "Gorilla gorilla"[host])')
+    if host_choice == '1':  # Human
+        query_parts.append('("Homo sapiens"[host] OR "human"[host]) NOT ("macaque"[host] OR "monkey"[host] OR "Pan troglodytes"[host] OR "Gorilla"[host] OR "bat"[host] OR "Unknown"[host] OR "cynomolgus macaque"[host] OR "cynomolgus_macaque"[host] OR "cynomolgusmacaque"[host] OR "Macaca fascicularis"[host] OR "Macaca mulatta"[host] OR "rhesus"[host])')
+    elif host_choice == '2':  # Non-human
+        query_parts.append('("macaque"[host] OR "monkey"[host] OR "Pan troglodytes"[host] OR "Gorilla"[host] OR "bat"[host] OR "cynomolgus macaque"[host] OR "cynomolgus_macaque"[host] OR "cynomolgusmacaque"[host] OR "Macaca fascicularis"[host] OR "Macaca mulatta"[host] OR "rhesus"[host]) NOT ("Homo sapiens"[host] OR "human"[host])')
+    # For host_choice == '3' (All hosts), don't add any host filter
     
     # Add genome completeness filter
     if genome_choice == '1':  # Complete genomes only
