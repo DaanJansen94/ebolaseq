@@ -26,6 +26,7 @@ EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola v
    git clone https://github.com/DaanJansen94/ebolaseq.git
    cd ebolaseq
    pip install .
+   ebolaseq --help
    ```
 
 ## Re-installation
