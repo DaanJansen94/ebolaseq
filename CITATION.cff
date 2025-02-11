@@ -11,5 +11,5 @@ doi: "10.5281/zenodo.14851804"
 title: "EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis"
 version: v0.1.1
 url: github.com/DaanJansen94/ebolaseq
-date-released: 2024-02-05
+date-released: 2025-02-05
 abstract: "A command-line tool for downloading and processing Ebola virus sequences from GenBank for phylogenetic analysis."
