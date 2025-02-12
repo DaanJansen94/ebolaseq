@@ -169,6 +169,16 @@ When creating large phylogenetic trees for Zaire ebolavirus, it is recommended t
 - TrimAl
 - IQTree2
 
+## Citation
+
+If you use EbolaSeq in your research, please cite:
+
+```
+Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, 
+and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (Version v0.1.1) [Computer software]. 
+https://doi.org/10.5281/zenodo.14851804
+```
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
