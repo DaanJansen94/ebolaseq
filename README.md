@@ -1,6 +1,6 @@
 # EbolaSeq
 
-EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees. Users can choose from five different Ebola virus species and have the option to include their own consensus sequences or exclude specific sequences from the analysis.
+EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees.
 
 ## Installation
 
@@ -49,45 +49,91 @@ First, make sure your conda environment is activated:
 conda activate ebola_env
 ```
 
-### Basic Command Structure
+EbolaSeq can be run in two modes:
+1. Interactive Mode (default) - for interactive use
+2. Non-Interactive Mode - for HPC submissions or automated runs
 
+### Interactive Mode
+
+Basic command structure:
 ```bash
-ebolaseq --output-dir <output_directory> [optional arguments]
+ebolaseq --output-dir my_analysis [optional arguments]
 ```
 
-### Required Arguments
+Example commands:
+```bash
+# Basic usage
+ebolaseq --output-dir my_analysis
 
-- `--output-dir`: Directory where all output files will be saved
+# With phylogenetic analysis
+ebolaseq --output-dir my_analysis --phylogeny
 
-### Optional Arguments
+# Complete analysis with sequence removal and consensus
+ebolaseq --output-dir my_analysis \
+         --consensus-file path/to/consensus.fasta \
+         --remove remove.txt \
+         --phylogeny
+```
 
-- `--consensus-file`: Path to a consensus FASTA file to include in the analysis
-- `--remove`: Path to a text file containing GenBank accession numbers to exclude (one per line). Check 'remove.txt' in the repository for an example format.
-- `--phylogeny`: Flag to perform phylogenetic analysis (MAFFT alignment, TrimAl trimming, and IQTree2 tree construction)
+The tool will interactively prompt you for choices about:
+- Virus species
+- Genome completeness
+- Host type
+- Metadata options
 
-### Example Commands
+### Non-Interactive Mode (HPC)
 
-1. Basic usage (only download and filter sequences):
-   ```bash
-   ebolaseq --output-dir my_analysis
-   ```
+For HPC submissions or automated runs, specify all parameters via command line:
 
-2. Full analysis with phylogenetic tree:
-   ```bash
-   ebolaseq --output-dir my_analysis --phylogeny
-   ```
+```bash
+ebolaseq --output-dir my_analysis \
+         --virus 1 \
+         --genome 2 \
+         --completeness 80 \
+         --host 1 \
+         --metadata 3 \
+         --beast 2 \
+         --phylogeny \
+         --consensus-file path/to/consensus.fasta \
+         --remove remove.txt
+```
 
-3. Complete analysis with sequence removal and consensus:
-   ```bash
-   ebolaseq --output-dir my_analysis \
-            --consensus-file path/to/consensus.fasta \
-            --remove remove.txt \
-            --phylogeny
-   ```
+Required parameters for non-interactive mode:
+- `--virus`: Virus type
+  - 1 = Zaire ebolavirus
+  - 2 = Sudan ebolavirus
+  - 3 = Bundibugyo ebolavirus
+  - 4 = Tai Forest ebolavirus
+  - 5 = Reston ebolavirus
 
-It is strongly recommended to always use a `remove.txt` file with the `--remove` option when running EbolaSeq. This file should contain sequence IDs that should be excluded from the analysis, particularly sequences obtained from cell culture passages, laboratory-adapted strains, artificially modified sequences, sequences from experimental infections, and other non-natural viral sequences. These sequences can bias analyses as they may not represent natural viral diversity.
+- `--genome`: Genome completeness
+  - 1 = Complete genomes only
+  - 2 = Partial genomes (requires --completeness)
+  - 3 = All genomes
 
-When creating large phylogenetic trees for Zaire ebolavirus, it is recommended to root the tree using sequences from the 1976 Yambuku outbreak, as this represents the first documented outbreak of the virus.
+- `--completeness`: Required when --genome=2
+  - Value between 1-100 (percentage)
+
+- `--host`: Host filter
+  - 1 = Human only
+  - 2 = Non-human only
+  - 3 = All hosts
+
+- `--metadata`: Metadata filter
+  - 1 = Location only
+  - 2 = Date only
+  - 3 = Both location and date
+  - 4 = None
+
+- `--beast`: Required when --metadata is 2 or 3
+  - 1 = No
+  - 2 = Yes
+
+Optional arguments (both modes):
+- `--output-dir`: Output directory (required)
+- `--consensus-file`: Path to consensus FASTA file
+- `--remove`: Path to sequence removal list
+- `--phylogeny`: Create phylogenetic tree
 
 ### Input File Formats
 
@@ -108,55 +154,11 @@ When creating large phylogenetic trees for Zaire ebolavirus, it is recommended t
    MK114118.1
    ```
 
-### Interactive Steps
+## Important Notes
 
-When running EbolaSeq, you will be prompted to make the following choices:
+It is strongly recommended to always use a `remove.txt` file with the `--remove` option when running EbolaSeq. This file should contain sequence IDs that should be excluded from the analysis, particularly sequences obtained from cell culture passages, laboratory-adapted strains, artificially modified sequences, sequences from experimental infections, and other non-natural viral sequences. These sequences can bias analyses as they may not represent natural viral diversity.
 
-1. Select an Ebola virus species:
-   ```
-   Available Ebola virus species:
-   1. Zaire ebolavirus
-   2. Sudan ebolavirus
-   3. Bundibugyo ebolavirus
-   4. Tai Forest ebolavirus
-   5. Reston ebolavirus
-   ```
-
-2. Choose genome completeness:
-   ```
-   Genome completeness options:
-   1. Complete genomes only
-   2. Partial genomes (specify minimum completeness)
-   3. All genomes (both complete and partial)
-   ```
-   If option 2 is selected, you'll be asked to enter a minimum completeness percentage (1-100)
-
-3. Select host:
-   ```
-   Host options:
-   1. Human (Homo sapiens)
-   2. Chimpanzee (Pan troglodytes)
-   3. Gorilla (Gorilla sp.)
-   4. All hosts
-   ```
-
-4. Choose metadata filter:
-   ```
-   Metadata filter options:
-   1. Location data only
-   2. Collection date only
-   3. Both location and date
-   4. All sequences (no metadata filter)
-   ```
-
-5. BEAST format option:
-   ```
-   Do you want to generate BEAST input format?
-   1. No
-   2. Yes
-   ```
-
-The tool will then proceed with downloading and processing the sequences based on your choices.
+When creating large phylogenetic trees for Zaire ebolavirus, it is recommended to root the tree using sequences from the 1976 Yambuku outbreak, as this represents the first documented outbreak of the virus.
 
 ## Dependencies
 

@@ -191,7 +191,71 @@ def get_sequences_to_remove(remove_file):
     
     return to_remove
 
-def main(args):
+def cli_main():
+    """Entry point for command line interface"""
+    parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
+    
+    # Required argument
+    parser.add_argument('--output-dir', type=str, required=True, 
+                       help='Output directory for results')
+    
+    # Optional arguments
+    parser.add_argument('--consensus-file', type=str, 
+                       help='Path to consensus FASTA file to include')
+    parser.add_argument('--remove', type=str,
+                       help='Path to text file containing headers/accession IDs to remove')
+    parser.add_argument('--phylogeny', action='store_true', 
+                       help='Create phylogenetic tree using IQTree2')
+    
+    # Non-interactive mode arguments
+    parser.add_argument('--virus', type=str, choices=['1', '2', '3', '4', '5'],
+                       help='Virus choice: 1=Zaire, 2=Sudan, 3=Bundibugyo, 4=Tai Forest, 5=Reston')
+    parser.add_argument('--genome', type=str, choices=['1', '2', '3'],
+                       help='Genome type: 1=Complete, 2=Partial, 3=All')
+    parser.add_argument('--completeness', type=float,
+                       help='Minimum completeness percentage (1-100) when using --genome 2')
+    parser.add_argument('--host', type=str, choices=['1', '2', '3'],
+                       help='Host: 1=Human, 2=Non-human, 3=All')
+    parser.add_argument('--metadata', type=str, choices=['1', '2', '3', '4'],
+                       help='Metadata filter: 1=Location, 2=Date, 3=Both, 4=None')
+    parser.add_argument('--beast', type=str, choices=['1', '2'],
+                       help='BEAST format: 1=No, 2=Yes')
+    
+    args = parser.parse_args()
+    
+    # Convert paths to absolute paths
+    args.output_dir = os.path.abspath(args.output_dir)
+    if args.consensus_file:
+        args.consensus_file = os.path.abspath(args.consensus_file)
+    if args.remove:
+        args.remove = os.path.abspath(args.remove)
+    
+    # Create output directory
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    
+    # Change to output directory
+    original_dir = os.getcwd()
+    os.chdir(args.output_dir)
+    
+    try:
+        # Check if all required non-interactive parameters are provided
+        non_interactive = all([args.virus, args.genome, args.host, args.metadata])
+        if args.genome == '2' and args.completeness is None:
+            non_interactive = False
+        if args.metadata in ['2', '3'] and args.beast is None:
+            non_interactive = False
+            
+        # Run in appropriate mode
+        if non_interactive:
+            main(args, non_interactive=True)
+        else:
+            main(args)
+    finally:
+        os.chdir(original_dir)
+
+def main(args, non_interactive=False):
+    """Main function that can run in both interactive and non-interactive modes"""
     # Make these dictionaries global so they're accessible
     global virus_options, virus_processing_names
     
@@ -227,60 +291,70 @@ def main(args):
         '3': 'All hosts'
     }
     
-    # Show virus menu
-    print("\nAvailable Ebola virus species:")
-    for key, value in virus_options.items():
-        print(f"{key}. {value}")
-    
-    # Get all choices from user
-    choice = input("\nSelect the virus type (1-5): ")
-    virus_display_name = virus_options[choice]
-    virus_choice = virus_processing_names[choice]
-    virus_type = virus_choice.split('_')[0]
-    
-    # Show genome completeness options
-    print("\nGenome completeness options:")
-    for key, value in genome_options.items():
-        print(f"{key}. {value}")
-    genome_choice = input("\nSelect genome type (1-3): ")
-    
-    # If partial genomes selected, get threshold
-    completeness_threshold = 0
-    if genome_choice == '2':
-        while True:
-            try:
-                completeness_threshold = float(input("\nEnter minimum completeness percentage (1-100): "))
-                if 1 <= completeness_threshold <= 100:
-                    break
-                print("Please enter a value between 1 and 100")
-            except ValueError:
-                print("Please enter a valid number")
-    
-    # Show host options
-    print("\nHost options:")
-    for key, value in host_options.items():
-        print(f"{key}. {value}")
-    host_choice = input("\nSelect host (1-3): ")
-    
-    # Show metadata filter options
-    print("\nMetadata filter options:")
-    metadata_options = {
-        '1': 'Location data only',
-        '2': 'Collection date only',
-        '3': 'Both location and date',
-        '4': 'All sequences (no metadata filter)'
-    }
-    for key, value in metadata_options.items():
-        print(f"{key}. {value}")
-    metadata_choice = input("\nSelect metadata filter (1-4): ")
-    
-    # Get BEAST choice if applicable
-    beast_choice = '1'
-    if metadata_choice in ['2', '3']:
-        print("\nDo you want to generate BEAST input format?")
-        print("1. No")
-        print("2. Yes")
-        beast_choice = input("\nSelect BEAST option (1-2): ")
+    if non_interactive:
+        # Use command-line arguments directly
+        choice = args.virus
+        virus_display_name = virus_options[choice]
+        virus_choice = virus_processing_names[choice]
+        virus_type = virus_choice.split('_')[0]
+        genome_choice = args.genome
+        completeness_threshold = args.completeness if args.genome == '2' else 0
+        host_choice = args.host
+        metadata_choice = args.metadata
+        beast_choice = args.beast if args.metadata in ['2', '3'] else '1'
+    else:
+        # Interactive mode (keep existing interactive code)
+        print("\nAvailable Ebola virus species:")
+        for key, value in virus_options.items():
+            print(f"{key}. {value}")
+        choice = input("\nSelect the virus type (1-5): ")
+        virus_display_name = virus_options[choice]
+        virus_choice = virus_processing_names[choice]
+        virus_type = virus_choice.split('_')[0]
+        
+        # Show genome completeness options
+        print("\nGenome completeness options:")
+        for key, value in genome_options.items():
+            print(f"{key}. {value}")
+        genome_choice = input("\nSelect genome type (1-3): ")
+        
+        # If partial genomes selected, get threshold
+        completeness_threshold = 0
+        if genome_choice == '2':
+            while True:
+                try:
+                    completeness_threshold = float(input("\nEnter minimum completeness percentage (1-100): "))
+                    if 1 <= completeness_threshold <= 100:
+                        break
+                    print("Please enter a value between 1 and 100")
+                except ValueError:
+                    print("Please enter a valid number")
+        
+        # Show host options
+        print("\nHost options:")
+        for key, value in host_options.items():
+            print(f"{key}. {value}")
+        host_choice = input("\nSelect host (1-3): ")
+        
+        # Show metadata filter options
+        print("\nMetadata filter options:")
+        metadata_options = {
+            '1': 'Location data only',
+            '2': 'Collection date only',
+            '3': 'Both location and date',
+            '4': 'All sequences (no metadata filter)'
+        }
+        for key, value in metadata_options.items():
+            print(f"{key}. {value}")
+        metadata_choice = input("\nSelect metadata filter (1-4): ")
+        
+        # Get BEAST choice if applicable
+        beast_choice = '1'
+        if metadata_choice in ['2', '3']:
+            print("\nDo you want to generate BEAST input format?")
+            print("1. No")
+            print("2. Yes")
+            beast_choice = input("\nSelect BEAST option (1-2): ")
     
     # Download sequences
     output_file, query = download_sequences(virus_choice, genome_choice, host_choice, metadata_choice, completeness_threshold)
@@ -506,42 +580,6 @@ def main(args):
     if beast_choice == '2':
         print(f"- BEAST files saved in BEAST_input directory")
 
-def cli_main():
-    """Entry point for command line interface"""
-    parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
-    parser.add_argument('--output-dir', type=str, required=True, 
-                       help='Output directory for results')
-    parser.add_argument('--consensus-file', type=str, 
-                       help='Path to consensus FASTA file to include')
-    parser.add_argument('--phylogeny', action='store_true', 
-                       help='Create phylogenetic tree using IQTree2')
-    parser.add_argument('--remove', type=str,
-                       help='Path to text file containing headers/accession IDs to remove')
-    
-    args = parser.parse_args()
-    
-    # Convert paths to absolute paths before changing directory
-    output_dir = os.path.abspath(args.output_dir)
-    if args.consensus_file:
-        args.consensus_file = os.path.abspath(args.consensus_file)
-    if args.remove:
-        args.remove = os.path.abspath(args.remove)
-    
-    # Create output directory if it doesn't exist
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
-    # Change to output directory
-    original_dir = os.getcwd()
-    os.chdir(output_dir)
-    
-    try:
-        # Pass the arguments to main
-        main(args)
-    finally:
-        # Change back to original directory
-        os.chdir(original_dir)
-
 def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice, completeness_threshold=0):
     """Download sequences from GenBank"""
     Entrez.email = "anonymous@example.com"
@@ -549,7 +587,7 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
     # Reference sequence IDs for each virus type
     reference_sequences = {
         'Zaire_ebolavirus': 'NC_002549.1',
-        'Sudan_ebolavirus': 'NC_006432.1', 
+        'Sudan_ebolavirus': 'NC_006432.1',
         'Bundibugyo_ebolavirus': 'NC_014373.1',
         'Tai_Forest_ebolavirus': 'NC_014372.1',
         'Reston_ebolavirus': 'NC_004161.1'
@@ -582,36 +620,24 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
     # Combine all query parts
     query = " AND ".join(query_parts)
     
-    # Get total count without limit
-    handle = Entrez.esearch(db="nucleotide", term=query, retmax=0)
+    # Download sequences
+    output_file = "downloaded_genomes.gb"
+    ref_id = reference_sequences[virus_choice]
+    
+    # First, get the list of IDs from the search
+    handle = Entrez.esearch(db="nucleotide", term=query, retmax=10000)
     record = Entrez.read(handle)
     handle.close()
-    total_count = int(record["Count"])
-    
-    print(f"Found {total_count} sequences matching criteria...")
-    
-    if total_count == 0:
-        print("\nNo sequences found with the current filters.")
-        print("Try broadening your search criteria:")
-        print("- Consider selecting 'All hosts'")
-        print("- Try including partial genomes")
-        print("- Reduce metadata restrictions")
-        return None, query
-    
-    # Get all IDs without limit
-    handle = Entrez.esearch(db="nucleotide", term=query, retmax=total_count)
-    record = Entrez.read(handle)
-    handle.close()
-    
     id_list = record["IdList"]
     
-    # Download sequences in batches
-    batch_size = 100
-    output_file = "downloaded_genomes.gb"
+    # Remove reference ID from id_list if it's present to avoid duplication
+    if ref_id in id_list:
+        id_list.remove(ref_id)
+    
+    print(f"\nFound {len(id_list)} sequences matching criteria...")
     
     with open(output_file, "w") as out_handle:
-        # First download reference sequence
-        ref_id = reference_sequences[virus_choice]
+        # Always download reference sequence first
         print(f"\nDownloading reference sequence {ref_id}...")
         ref_handle = Entrez.efetch(db="nucleotide", id=ref_id, rettype="gb", retmode="text")
         out_handle.write(ref_handle.read())
@@ -619,6 +645,7 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
         time.sleep(1)  # Be nice to NCBI servers
 
         # Then download the rest of the sequences
+        batch_size = 100
         for i in range(0, len(id_list), batch_size):
             batch = id_list[i:i + batch_size]
             print(f"Downloading batch {(i//batch_size)+1} of {(len(id_list)-1)//batch_size + 1}...")
@@ -867,6 +894,8 @@ def create_phylogenetic_tree(fasta_dir):
             for fasta in os.listdir(fasta_dir):
                 if fasta.endswith(('.fasta', '.fa')) and fasta != "Ebola_Combined.fasta":
                     fasta_path = os.path.join(fasta_dir, fasta)
+                    # Remove duplicates from input file before combining
+                    remove_duplicate_sequences(fasta_path)
                     with open(fasta_path) as infile:
                         outfile.write(infile.read())
         print("Combined FASTA file created")
@@ -917,6 +946,63 @@ def create_phylogenetic_tree(fasta_dir):
         
     except Exception as e:
         print(f"Error during phylogenetic analysis: {str(e)}")
+
+def write_filtered_sequences(records, virus_choice, metadata_choice, output_file):
+    """Write filtered sequences to FASTA file and check for duplicates"""
+    seen_headers = set()
+    seen_accessions = set()
+    unique_records = []
+    duplicates_found = False
+    
+    for record in records:
+        # Get base accession (everything before the first dot)
+        base_accession = record.id.split('.')[0]
+        
+        # Format the header
+        formatted_id = format_record_id(record, virus_choice, metadata_choice)
+        
+        # Skip if we've seen either the full formatted ID or the base accession
+        if formatted_id in seen_headers or base_accession in seen_accessions:
+            print(f"Found duplicate sequence: {formatted_id} (accession: {base_accession})")
+            duplicates_found = True
+            continue
+            
+        seen_headers.add(formatted_id)
+        seen_accessions.add(base_accession)
+        record.id = formatted_id
+        record.description = formatted_id
+        unique_records.append(record)
+    
+    if duplicates_found:
+        print(f"Removed duplicate sequences. Keeping {len(unique_records)} unique sequences.")
+    
+    # Write unique sequences to file
+    SeqIO.write(unique_records, output_file, "fasta")
+    return len(unique_records)
+
+def remove_duplicate_sequences(fasta_file):
+    """Remove sequences with duplicate headers from a FASTA file"""
+    seen_headers = set()
+    unique_records = []
+    duplicates_found = False
+    
+    # Read all records from the file
+    records = list(SeqIO.parse(fasta_file, "fasta"))
+    
+    for record in records:
+        if record.id in seen_headers:
+            print(f"Found duplicate header: {record.id}")
+            duplicates_found = True
+            continue
+        seen_headers.add(record.id)
+        unique_records.append(record)
+    
+    if duplicates_found:
+        print(f"Writing {len(unique_records)} unique sequences back to file...")
+        SeqIO.write(unique_records, fasta_file, "fasta")
+        print("Duplicate sequences removed")
+    
+    return duplicates_found
 
 if __name__ == "__main__":
     cli_main() 
