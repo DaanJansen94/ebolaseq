@@ -148,8 +148,6 @@ def get_outgroup_reference(virus_choice):
     
     return record, outgroup_info['outgroup']
 
-# ... (copy ALL your original functions exactly as they were)
-
 def parse_args():
     parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
     parser.add_argument('--output-dir', type=str, required=True, 
