@@ -12,16 +12,11 @@ EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola v
 
 2. Create and activate a new conda environment:
    ```bash
-   conda create -n ebola_env python=3.9
+   conda create -n ebola_env -c bioconda python=3.9 mafft trimal iqtree
    conda activate ebola_env
    ```
 
-3. Install required tools in the environment:
-   ```bash
-   conda install -c bioconda mafft trimal iqtree
-   ```
-
-4. Install ebolaseq:
+3. Install ebolaseq:
    ```bash
    git clone https://github.com/DaanJansen94/ebolaseq.git
    cd ebolaseq
