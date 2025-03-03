@@ -169,7 +169,7 @@ When creating large phylogenetic trees for Zaire ebolavirus, it is recommended t
 If you use EbolaSeq in your research, please cite:
 
 ```
-Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (Version v0.1.1) [Computer software]. https://doi.org/10.5281/zenodo.14851804
+Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.1.2). Zenodo. https://doi.org/10.5281/zenodo.14851804
 ```
 
 ## License
