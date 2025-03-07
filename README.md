@@ -4,38 +4,50 @@ EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola v
 
 ## Installation
 
-1. First, install conda if you haven't already:
-   ```bash
-   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-   bash Miniconda3-latest-Linux-x86_64.sh
-   ```
+### Prerequisites
+First, install conda if you haven't already:
+```bash
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh
+```
 
-2. Create and activate a new conda environment:
+Then, ensure you have the required channels:
+```bash
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+```
+
+### Option 1: Using Conda (Recommended)
+Install EbolaSeq:
+```bash
+conda create -n ebolaseq -c bioconda ebolaseq -y
+conda activate ebolaseq
+```
+
+### Option 2: From Source Code
+1. Create and activate a new conda environment:
    ```bash
    conda create -n ebola_env -c bioconda python=3.9 mafft trimal iqtree
    conda activate ebola_env
    ```
 
-3. Install ebolaseq:
+2. Install ebolaseq:
    ```bash
    git clone https://github.com/DaanJansen94/ebolaseq.git
    cd ebolaseq
    pip install .
    ```
 
-## Re-installation
-
-When updates are pushed to GitHub, or when you want to use your own modifications to the code, you'll need to reinstall the package:
-
-```bash
-conda activate ebola_env  # Make sure you're in the right environment
-cd ebolaseq
-git pull  # Get the latest updates from GitHub
-pip uninstall ebolaseq
-pip install .
-```
-
-Note: Any time you modify the code or pull updates from GitHub, you need to reinstall the package using these commands for the changes to take effect.
+3. Re-installation (when updates are available):
+   ```bash
+   conda activate ebola_env  # Make sure you're in the right environment
+   cd ebolaseq
+   git pull  # Get the latest updates from GitHub
+   pip uninstall ebolaseq
+   pip install .
+   ```
+   Note: Any time you modify the code or pull updates from GitHub, you need to reinstall the package using these commands for the changes to take effect.
 
 ## Usage
 
