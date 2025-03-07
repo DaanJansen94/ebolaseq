@@ -28,8 +28,8 @@ conda activate ebolaseq
 ### Option 2: From Source Code
 1. Create and activate a new conda environment:
    ```bash
-   conda create -n ebola_env -c bioconda python=3.9 mafft trimal iqtree
-   conda activate ebola_env
+   conda create -n ebolaseq -c bioconda python=3.9 mafft trimal iqtree
+   conda activate ebolaseq
    ```
 
 2. Install ebolaseq:
@@ -41,7 +41,7 @@ conda activate ebolaseq
 
 3. Re-installation (when updates are available):
    ```bash
-   conda activate ebola_env  # Make sure you're in the right environment
+   conda activate ebolaseq  # Make sure you're in the right environment
    cd ebolaseq
    git pull  # Get the latest updates from GitHub
    pip uninstall ebolaseq
@@ -53,7 +53,7 @@ conda activate ebolaseq
 
 First, make sure your conda environment is activated:
 ```bash
-conda activate ebola_env
+conda activate ebolaseq
 ```
 
 EbolaSeq can be run in two modes:
