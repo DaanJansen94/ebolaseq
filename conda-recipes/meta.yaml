@@ -25,11 +25,11 @@ requirements:
     - setuptools
   run:
     - python >=3.9
-    - mafft
-    - trimal
-    - iqtree
-    - numpy >=1.20.0
-    - biopython >=1.80
+    - conda-forge::mafft        # Force conda-forge for better glibc compatibility
+    - bioconda::trimal          # Keep bioconda for specialized tools
+    - bioconda::iqtree          # Keep bioconda for specialized tools
+    - conda-forge::numpy >=1.20.0    # Force conda-forge for better compatibility
+    - conda-forge::biopython >=1.80  # Force conda-forge for better compatibility
     
 test:
   imports:
