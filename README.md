@@ -80,18 +80,9 @@ ebolaseq --output-dir my_analysis \
          --consensus-file path/to/consensus.fasta \
          --remove remove.txt \
          --phylogeny
-```
 
-**Using short aliases:**
-```bash
-# Basic usage
-ebolaseq -o my_analysis
-
-# With phylogenetic analysis  
-ebolaseq -o my_analysis --phylogeny
-
-# Complete analysis with sequence removal and consensus
-ebolaseq -o my_analysis -c path/to/consensus.fasta --remove remove.txt --phylogeny
+# Complete analysis with sequence removal and consensus and phylogenetic analysis 
+ebolaseq -o my_analysis -c path/to/consensus.fasta -p
 ```
 
 The tool will interactively prompt you for choices about:
