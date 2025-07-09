@@ -82,6 +82,18 @@ ebolaseq --output-dir my_analysis \
          --phylogeny
 ```
 
+**Using short aliases:**
+```bash
+# Basic usage
+ebolaseq -o my_analysis
+
+# With phylogenetic analysis  
+ebolaseq -o my_analysis --phylogeny
+
+# Complete analysis with sequence removal and consensus
+ebolaseq -o my_analysis -c path/to/consensus.fasta --remove remove.txt --phylogeny
+```
+
 The tool will interactively prompt you for choices about:
 - Virus species
 - Genome completeness
