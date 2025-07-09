@@ -9,6 +9,17 @@ import time
 import argparse
 import shutil
 
+# Import version from package
+try:
+    from . import __version__
+except ImportError:
+    # Fallback for development/testing
+    try:
+        import ebolaseq
+        __version__ = ebolaseq.__version__
+    except:
+        __version__ = "unknown"
+
 # Copy ALL your original functions here exactly as they were
 def get_sequence_length(record):
     return len(record.seq)
@@ -191,7 +202,13 @@ def get_sequences_to_remove(remove_file):
 
 def cli_main():
     """Entry point for command line interface"""
-    parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
+    parser = argparse.ArgumentParser(
+        description=f'Download and analyze Ebola virus sequences ({__version__})',
+        prog='ebolaseq'
+    )
+    
+    # Version argument
+    parser.add_argument('--version', action='version', version=f'ebolaseq {__version__}')
     
     # Required argument
     parser.add_argument('--output-dir', type=str, required=True, 
