@@ -208,7 +208,7 @@ def cli_main():
     )
     
     # Version argument
-    parser.add_argument('--version', action='version', version=f'ebolaseq {__version__}')
+    parser.add_argument('--version', action='version', version=f'ebolaseq {__version__}', help="show program's version number")
     
     # Required argument
     parser.add_argument('--output-dir', type=str, required=True, 
