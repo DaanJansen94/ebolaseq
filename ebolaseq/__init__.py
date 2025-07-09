@@ -7,12 +7,18 @@ def _get_version():
     # 1. Try to get from installed package metadata (for installed packages)
     try:
         from importlib.metadata import version
-        return "v" + version("ebolaseq")
+        raw_version = version("ebolaseq")
+        # Clean up setuptools_scm post-release versions (e.g., "0.1.4.post3" -> "0.1.4")
+        clean_version = raw_version.split('.post')[0].split('.dev')[0].split('+')[0]
+        return "v" + clean_version
     except ImportError:
         # Python < 3.8 fallback
         try:
             import pkg_resources
-            return "v" + pkg_resources.get_distribution("ebolaseq").version
+            raw_version = pkg_resources.get_distribution("ebolaseq").version
+            # Clean up setuptools_scm post-release versions
+            clean_version = raw_version.split('.post')[0].split('.dev')[0].split('+')[0]
+            return "v" + clean_version
         except:
             pass
     except:
