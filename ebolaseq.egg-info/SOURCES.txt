@@ -2,12 +2,11 @@ CITATION.cff
 LICENSE
 README.md
 google852fc052969d7763.html
-pyproject.toml
 remove.txt
+setup.py
 .github/workflows/jekyll-gh-pages.yml
 conda-recipes/meta.yaml
 ebolaseq/__init__.py
-ebolaseq/_version.py
 ebolaseq/ebolaseq.py
 ebolaseq.egg-info/PKG-INFO
 ebolaseq.egg-info/SOURCES.txt
@@ -15,5 +14,7 @@ ebolaseq.egg-info/dependency_links.txt
 ebolaseq.egg-info/entry_points.txt
 ebolaseq.egg-info/requires.txt
 ebolaseq.egg-info/top_level.txt
+ebolaseq/__pycache__/__init__.cpython-311.pyc
 ebolaseq/__pycache__/__init__.cpython-39.pyc
+ebolaseq/__pycache__/ebolaseq.cpython-311.pyc
 ebolaseq/__pycache__/ebolaseq.cpython-39.pyc
