@@ -2,9 +2,23 @@ import subprocess
 import os
 
 def _get_version():
-    """Get version directly from git tags only"""
+    """Get version from package metadata or git tags"""
     
-    # Try to get the latest git tag directly (works in development)
+    # 1. Try to get from installed package metadata (for installed packages)
+    try:
+        from importlib.metadata import version
+        return "v" + version("ebolaseq")
+    except ImportError:
+        # Python < 3.8 fallback
+        try:
+            import pkg_resources
+            return "v" + pkg_resources.get_distribution("ebolaseq").version
+        except:
+            pass
+    except:
+        pass
+    
+    # 2. Try to get the latest git tag directly (works in development)
     try:
         result = subprocess.run(['git', 'describe', '--tags', '--abbrev=0'], 
                               capture_output=True, text=True, 
@@ -14,7 +28,7 @@ def _get_version():
     except:
         pass
     
-    # Fallback: try to get version from git in parent directories
+    # 3. Fallback: try to get version from git in parent directories
     try:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         for _ in range(5):  # Check up to 5 parent directories
@@ -27,7 +41,7 @@ def _get_version():
     except:
         pass
     
-    # No fallback - if git is not available, return unknown
+    # 4. Final fallback if all methods fail
     return "unknown"
 
 __version__ = _get_version()
