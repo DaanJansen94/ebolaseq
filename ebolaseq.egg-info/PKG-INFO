@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: ebolaseq
+Version: 0.1.4.dev19+gc76e165.d20250709
+Summary: A tool for filtering and analyzing Ebola virus sequences
+Author: Daan Jansen
+Requires-Python: >=3.9
+License-File: LICENSE
+Requires-Dist: biopython>=1.81
+Dynamic: license-file
