@@ -64,22 +64,24 @@ EbolaSeq can be run in two modes:
 
 Basic command structure:
 ```bash
+ebolaseq -o my_analysis [optional arguments]
+# or
 ebolaseq --output-dir my_analysis [optional arguments]
 ```
 
 Example commands:
 ```bash
 # Basic usage
-ebolaseq --output-dir my_analysis
+ebolaseq -o my_analysis
 
 # With phylogenetic analysis
-ebolaseq --output-dir my_analysis --phylogeny
+ebolaseq -o my_analysis -p
 
 # Complete analysis with sequence removal and consensus
-ebolaseq --output-dir my_analysis \
-         --consensus-file path/to/consensus.fasta \
+ebolaseq -o my_analysis \
+         -c path/to/consensus.fasta \
          --remove remove.txt \
-         --phylogeny
+         -p
 ```
 
 The tool will interactively prompt you for choices about:
@@ -93,15 +95,15 @@ The tool will interactively prompt you for choices about:
 For HPC submissions or automated runs, specify all parameters via command line:
 
 ```bash
-ebolaseq --output-dir my_analysis \
+ebolaseq -o my_analysis \
          --virus 1 \
          --genome 2 \
          --completeness 80 \
          --host 1 \
          --metadata 3 \
          --beast 2 \
-         --phylogeny \
-         --consensus-file path/to/consensus.fasta \
+         -p \
+         -c path/to/consensus.fasta \
          --remove remove.txt
 ```
 
@@ -137,10 +139,10 @@ Required parameters for non-interactive mode:
   - 2 = Yes
 
 Optional arguments (both modes):
-- `--output-dir`: Output directory (required)
-- `--consensus-file`: Path to consensus FASTA file
+- `-o, --output-dir`: Output directory (required)
+- `-c, --consensus-file`: Path to consensus FASTA file  
 - `--remove`: Path to sequence removal list
-- `--phylogeny`: Create phylogenetic tree
+- `-p, --phylogeny`: Create phylogenetic tree
 
 ### Input File Formats
 
