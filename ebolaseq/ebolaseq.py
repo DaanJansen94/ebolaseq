@@ -165,7 +165,7 @@ def parse_args():
                        help='Output directory for results')
     parser.add_argument('-c', '--consensus-file', type=str, 
                        help='Path to consensus FASTA file to include')
-    parser.add_argument('-p', '--phylogeny', action='store_true', 
+    parser.add_argument('--phylogeny', '-p', action='store_true', 
                        help='Create phylogenetic tree using IQTree2')
     parser.add_argument('--remove', type=str,
                        help='Path to text file containing headers/accession IDs to remove')
@@ -219,7 +219,7 @@ def cli_main():
                        help='Path to consensus FASTA file to include')
     parser.add_argument('--remove', type=str,
                        help='Path to text file containing headers/accession IDs to remove')
-    parser.add_argument('-p', '--phylogeny', action='store_true', 
+    parser.add_argument('--phylogeny', '-p', action='store_true', 
                        help='Create phylogenetic tree using IQTree2')
     
     # Non-interactive mode arguments
