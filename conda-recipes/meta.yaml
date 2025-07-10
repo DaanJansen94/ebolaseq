@@ -1,5 +1,5 @@
 {% set name = "ebolaseq" %}
-{% set version = "0.1.5" %}
+{% set version = "0.1.4" %}
 
 package:
   name: {{ name }}
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/DaanJansen94/ebolaseq/archive/v{{ version }}.tar.gz
-  sha256: be50e558b3b43aa9712a4d33fb38ae582b0f64baa7f33d3042d19e7ad3408bfd
+  sha256: a3c8e6d19a9068ca33da4fbbfdaa9639d6524657b025c3d1c8c794545ac5725c
 
 build:
   number: 0
