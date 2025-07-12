@@ -219,8 +219,13 @@ def cli_main():
                        help='Path to consensus FASTA file to include')
     parser.add_argument('--remove', type=str,
                        help='Path to text file containing headers/accession IDs to remove')
-    parser.add_argument('--phylogeny', '-p', action='store_true', 
-                       help='Create phylogenetic tree using IQTree2')
+    
+    # Mutually exclusive group for phylogeny and alignment
+    analysis_group = parser.add_mutually_exclusive_group()
+    analysis_group.add_argument('--phylogeny', '-p', action='store_true', 
+                               help='Create phylogenetic tree using IQTree2')
+    analysis_group.add_argument('--alignment', '-a', action='store_true',
+                               help='Create multiple sequence alignment and trimming (without phylogenetic tree)')
     
     # Non-interactive mode arguments
     parser.add_argument('--virus', type=str, choices=['1', '2', '3', '4', '5'],
@@ -580,6 +585,12 @@ def main(args, non_interactive=False):
             print("\nStarting phylogenetic analysis...")
             create_phylogenetic_tree("FASTA")
             print("Phylogenetic analysis completed!")
+        
+        # Run alignment only if requested
+        elif args.alignment:
+            print("\nStarting alignment analysis...")
+            create_alignment_only("FASTA")
+            print("Alignment analysis completed!")
             
     except Exception as e:
         print(f"Error during processing: {str(e)}")
@@ -884,6 +895,86 @@ def check_dependencies():
         print(f"Error: Missing required tools: {', '.join(missing)}")
         print("Please install these tools and ensure they are in your PATH")
         sys.exit(1)
+
+def check_alignment_dependencies():
+    """Check if required external tools are available for alignment only"""
+    dependencies = ['mafft', 'trimal']
+    missing = []
+    
+    for tool in dependencies:
+        if subprocess.run(['which', tool], capture_output=True).returncode != 0:
+            missing.append(tool)
+    
+    if missing:
+        print(f"Error: Missing required tools: {', '.join(missing)}")
+        print("Please install these tools and ensure they are in your PATH")
+        sys.exit(1)
+
+def create_alignment_only(fasta_dir):
+    """Create multiple sequence alignment and trimming without phylogenetic tree."""
+    print("\nStarting alignment pipeline...")
+    
+    try:
+        # Check dependencies first
+        check_alignment_dependencies()
+        
+        # Create output directories
+        mafft_dir = os.path.join(fasta_dir, "MAFFT_output")
+        trimal_dir = os.path.join(fasta_dir, "TrimAl_output")
+        
+        os.makedirs(mafft_dir, exist_ok=True)
+        os.makedirs(trimal_dir, exist_ok=True)
+        
+        # Concatenate all FASTA files
+        combined_fasta = os.path.join(fasta_dir, "Ebola_Combined.fasta")
+        print(f"Creating combined FASTA file...")
+        with open(combined_fasta, 'w') as outfile:
+            for fasta in os.listdir(fasta_dir):
+                if fasta.endswith(('.fasta', '.fa')) and fasta != "Ebola_Combined.fasta":
+                    fasta_path = os.path.join(fasta_dir, fasta)
+                    # Remove duplicates from input file before combining
+                    remove_duplicate_sequences(fasta_path)
+                    with open(fasta_path) as infile:
+                        outfile.write(infile.read())
+        print("Combined FASTA file created")
+        
+        # Run MAFFT alignment
+        aligned_fasta = os.path.join(mafft_dir, "Ebola_Combined_aligned.fasta")
+        print(f"\nRunning MAFFT alignment...")
+        mafft_cmd = f"mafft --thread -1 --auto {combined_fasta} > {aligned_fasta}"
+        result = subprocess.run(mafft_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            print(f"Error during MAFFT alignment: {result.stderr}")
+            return
+        print("MAFFT alignment complete")
+        
+        # Run TrimAl
+        trimmed_fasta = os.path.join(trimal_dir, "Ebola_trimmed.fasta")
+        print(f"\nRunning TrimAl...")
+        trimal_cmd = f"trimal -in {aligned_fasta} -out {trimmed_fasta} -automated1"
+        result = subprocess.run(trimal_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+        if result.returncode != 0:
+            print(f"Error during TrimAl: {result.stderr}")
+            print("TrimAl trimming failed!")
+            print(f"\nAlignment pipeline completed with errors!")
+            print(f"\nOutput files:")
+            print(f"- Combined FASTA: {combined_fasta}")
+            print(f"- MAFFT alignment: {aligned_fasta}")
+            print(f"- TrimAl output: FAILED - {trimmed_fasta} not created")
+            print(f"\nThe MAFFT alignment is available, but TrimAl trimming failed.")
+            print(f"You can still use the aligned sequences from: {aligned_fasta}")
+            return
+        print("TrimAl trimming complete")
+        
+        print("\nAlignment pipeline completed successfully!")
+        print(f"\nOutput files:")
+        print(f"- Combined FASTA: {combined_fasta}")
+        print(f"- MAFFT alignment: {aligned_fasta}")
+        print(f"- TrimAl output: {trimmed_fasta}")
+        print(f"\nThe trimmed alignment is ready for phylogenetic analysis or other downstream applications.")
+        
+    except Exception as e:
+        print(f"Error during alignment: {str(e)}")
 
 def create_phylogenetic_tree(fasta_dir):
     """Create phylogenetic tree using MAFFT, TrimAl and IQTree2."""
