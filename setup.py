@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="ebolaseq",
-    version="0.1.4",
+    version="0.1.5",
     description="A tool for filtering and analyzing Ebola virus sequences",
     author="Daan Jansen",
     packages=find_packages(),
