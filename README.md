@@ -19,7 +19,7 @@ conda config --add channels conda-forge
 ```
 
 ### Option 1: Using Conda (Recommended)
-Install Install [EbolaSeq via Conda](https://anaconda.org/bioconda/ebolaseq):
+Install [EbolaSeq via Conda](https://anaconda.org/bioconda/ebolaseq):
 ```bash
 conda create -n ebolaseq -c conda-forge -c bioconda ebolaseq -y
 conda activate ebolaseq
