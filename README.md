@@ -45,7 +45,7 @@ EbolaSeq can be run in two modes:
 1. Interactive Mode (default) - for interactive use
 2. Non-Interactive Mode - for HPC submissions or automated runs
 
-### Options (submission reference)
+### Options
 
 **`-o`, `--output-dir`** — Output directory for results
 
