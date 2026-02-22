@@ -18,7 +18,7 @@ build:
   run_exports:
     - {{ pin_subpackage(name, max_pin='x.x') }}
 
-requirements:ls
+requirements:
   host:
     - python >=3.9
     - pip
@@ -30,6 +30,8 @@ requirements:ls
     - bioconda::iqtree =2.4.0   # Use Iqtree 2.4.0
     - conda-forge::numpy >=1.20.0    # Force conda-forge for better compatibility
     - conda-forge::biopython >=1.80  # Force conda-forge for better compatibility
+    - bioconda::minimap2        # EbolaS: map genomes to reference
+    - bioconda::pal2nal         # EbolaS: back-translate protein to codon alignment
     
 test:
   imports:
