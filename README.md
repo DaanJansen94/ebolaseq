@@ -82,12 +82,14 @@ Value between 1–100 (percentage)
 3 = Both location and date  
 4 = None
 
+**Optional**
+
 **`--beast`** — Required when `--metadata` is 2 or 3
 
 1 = No  
 2 = Yes
 
-**Consensus FASTA per species** — Path to a FASTA file; used in alignment/phylogeny when provided
+**Consensus FASTA per species** — Path to a FASTA file
 
 `--c_z` = Zaire  
 `--c_s` = Sudan  
@@ -110,8 +112,6 @@ Value between 1–100 (percentage)
 5 = VP30  
 6 = VP24  
 (Or use names: L, NP, VP35, VP40, VP30, VP24)
-
-**Optional (both modes)**
 
 **`--remove`** — Path to file listing sequence IDs/headers to exclude  
 **`--phylogeny`, `-p`** — Create phylogenetic tree from alignment
