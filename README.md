@@ -113,9 +113,13 @@ EbolaSeq can be run in two modes:
 - 6 = VP24
 - Or use names: L, NP, VP35, VP40, VP30, VP24
 
-**`--remove`** — Path to file listing sequence IDs/headers to exclude
-
 **`--phylogeny`, `-p`** — Create phylogenetic tree from alignment
+
+**`-m`, `--min-cds-fraction`** — For alignment 2: minimum fraction of reference CDS length to keep a sequence (default 0.5). E.g. 0.2 keeps more partial sequences, 0.8 is stricter.
+
+**`-t`, `--threads`** — Threads for minimap2 and MAFFT (default 1). E.g. `-t 64` on a 64-core node. 0 = use all CPUs.
+
+**`--remove`** — Path to file listing sequence IDs/headers to exclude
 
 ### Examples
 
