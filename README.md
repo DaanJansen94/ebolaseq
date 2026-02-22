@@ -51,69 +51,70 @@ EbolaSeq can be run in two modes:
 
 **`--virus`** — Virus / species
 
-1 = Zaire ebolavirus  
-2 = Sudan ebolavirus  
-3 = Bundibugyo ebolavirus  
-4 = Tai Forest ebolavirus  
-5 = Reston ebolavirus  
-6 = Pan-Ebola: all 5 species  
-Comma-separated = multiple species (e.g. 1,2 for Zaire+Sudan; 1,2,3 for Zaire+Sudan+Bundibugyo)
+- 1 = Zaire ebolavirus
+- 2 = Sudan ebolavirus
+- 3 = Bundibugyo ebolavirus
+- 4 = Tai Forest ebolavirus
+- 5 = Reston ebolavirus
+- 6 = Pan-Ebola: all 5 species
+- Comma-separated = multiple species (e.g. 1,2 for Zaire+Sudan; 1,2,3 for Zaire+Sudan+Bundibugyo)
 
 **`--genome`** — Genome completeness
 
-1 = Complete genomes only  
-2 = Partial genomes (requires `--completeness`)  
-3 = All genomes
+- 1 = Complete genomes only
+- 2 = Partial genomes (requires `--completeness`)
+- 3 = All genomes
 
-**`--completeness`** — Required when `--genome`=2  
+**`--completeness`** — Required when `--genome`=2
 
-Value between 1–100 (percentage)
+- Value between 1–100 (percentage)
 
 **`--host`** — Host filter
 
-1 = Human only  
-2 = Non-human only  
-3 = All hosts
+- 1 = Human only
+- 2 = Non-human only
+- 3 = All hosts
 
 **`--metadata`** — Metadata filter
 
-1 = Location only  
-2 = Date only  
-3 = Both location and date  
-4 = None
+- 1 = Location only
+- 2 = Date only
+- 3 = Both location and date
+- 4 = None
 
 **Optional**
 
 **`--beast`** — Required when `--metadata` is 2 or 3
 
-1 = No  
-2 = Yes
+- 1 = No
+- 2 = Yes
 
 **Consensus FASTA per species** — Path to a FASTA file
 
-`--c_z` = Zaire  
-`--c_s` = Sudan  
-`--c_r` = Reston  
-`--c_b` = Bundibugyo  
-`--c_t` = Tai Forest
+- `--c_z` = Zaire
+- `--c_s` = Sudan
+- `--c_r` = Reston
+- `--c_b` = Bundibugyo
+- `--c_t` = Tai Forest
 
 **`--alignment`, `-a`** — Alignment type
 
-1 = Whole-genome alignment  
-2 = Protein (CDS) alignment  
-3 = No alignment
+- 1 = Whole-genome alignment
+- 2 = Protein (CDS) alignment
+- 3 = No alignment
 
 **`--proteins`, `-pr`** — For alignment 2 only; comma-separated
 
-1 = L  
-2 = NP  
-3 = VP35  
-4 = VP40  
-5 = VP30  
-6 = VP24  
-(Or use names: L, NP, VP35, VP40, VP30, VP24)
+- 1 = L
+- 2 = NP
+- 3 = VP35
+- 4 = VP40
+- 5 = VP30
+- 6 = VP24
+- Or use names: L, NP, VP35, VP40, VP30, VP24
 
-**`--remove`** — Path to file listing sequence IDs/headers to exclude  
+**`--remove`** — Path to file listing sequence IDs/headers to exclude
+
 **`--phylogeny`, `-p`** — Create phylogenetic tree from alignment
 
 ### Examples
