@@ -47,8 +47,6 @@ EbolaSeq can be run in two modes:
 
 ### Options (submission reference)
 
-**Required**
-
 **`-o`, `--output-dir`** — Output directory for results
 
 **`--virus`** — Virus / species
