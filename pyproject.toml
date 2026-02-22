@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ebolaseq"
+version = "0.1.6"
+description = "A tool for filtering and analyzing Ebola virus sequences"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Daan Jansen" }
+]
+dependencies = [
+    "biopython>=1.81",
+]
+
+[project.scripts]
+ebolaseq = "ebolaseq.ebolaseq:cli_main"
+
+[tool.setuptools.packages.find]
+where = ["."]

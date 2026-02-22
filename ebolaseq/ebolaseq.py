@@ -137,9 +137,75 @@ def get_collection_date(record):
                     
     return 9999  # Return large number for unknown dates
 
-def get_outgroup_reference(virus_choice):
+# Map GenBank organism strings to internal processing names (with underscores)
+ORGANISM_TO_PROCESSING = {
+    'Zaire ebolavirus': 'Zaire_ebolavirus',
+    'Zaire Ebolavirus': 'Zaire_ebolavirus',
+    'Sudan ebolavirus': 'Sudan_ebolavirus',
+    'Sudan Ebolavirus': 'Sudan_ebolavirus',
+    'Bundibugyo ebolavirus': 'Bundibugyo_ebolavirus',
+    'Tai Forest ebolavirus': 'Tai_Forest_ebolavirus',
+    'Reston ebolavirus': 'Reston_ebolavirus',
+    'Reston Ebolavirus': 'Reston_ebolavirus',
+}
+
+def get_record_species_name(record):
+    """Get the virus species processing name from a GenBank record (e.g. Zaire_ebolavirus)."""
+    for feature in record.features:
+        if feature.type == "source" and 'organism' in feature.qualifiers:
+            org = feature.qualifiers['organism'][0]
+            return ORGANISM_TO_PROCESSING.get(org, org.replace(' ', '_'))
+    return None
+
+def parse_virus_selection(choice, virus_processing_names):
+    """
+    Parse user virus selection. choice can be:
+    - '1' to '5': single species
+    - '6': all 5 species (Pan-Ebola)
+    - '1,2' or '1, 2, 3': comma-separated species numbers
+    Returns (list of processing names, base name for filenames).
+    """
+    choice = choice.strip().lower()
+    all_species = [virus_processing_names[k] for k in sorted(virus_processing_names)]
+    # Option 6: all 5 species (Pan-Ebola)
+    if choice == '6':
+        base_name = 'pan'
+        return all_species, base_name
+    # Comma-separated numbers
+    if ',' in choice:
+        parts = [p.strip() for p in choice.split(',') if p.strip()]
+        if not parts:
+            return None, None
+        valid = []
+        for p in parts:
+            if p in virus_processing_names:
+                valid.append(virus_processing_names[p])
+            else:
+                return None, None
+        # unique, preserve order
+        seen = set()
+        ordered = []
+        for v in valid:
+            if v not in seen:
+                seen.add(v)
+                ordered.append(v)
+        # base name: zaire_sudan, zaire_sudan_bundibugyo, etc.
+        ref_key = {'Zaire_ebolavirus': 'zaire', 'Sudan_ebolavirus': 'sudan', 'Bundibugyo_ebolavirus': 'bundibugyo',
+                   'Tai_Forest_ebolavirus': 'tai_forest', 'Reston_ebolavirus': 'reston'}
+        base_name = '_'.join(ref_key[s] for s in ordered)
+        return ordered, base_name
+    # Single digit 1-5
+    if choice in virus_processing_names:
+        name = virus_processing_names[choice]
+        return [name], name.lower()
+    return None, None
+
+def get_outgroup_reference(virus_choice_or_list):
+    """Get outgroup reference. virus_choice_or_list: single species name or list of species (for pan/multi)."""
     Entrez.email = "anonymous@example.com"
-    
+    virus_list = virus_choice_or_list if isinstance(virus_choice_or_list, list) else [virus_choice_or_list]
+    virus_set = set(virus_list)
+
     # Dictionary of reference sequences for each species (RefSeq accessions)
     refseq_dict = {
         'Zaire_ebolavirus': {'outgroup': 'Sudan_ebolavirus', 'refseq': 'NC_006432'},
@@ -148,16 +214,35 @@ def get_outgroup_reference(virus_choice):
         'Tai_Forest_ebolavirus': {'outgroup': 'Zaire_ebolavirus', 'refseq': 'NC_002549'},
         'Reston_ebolavirus': {'outgroup': 'Zaire_ebolavirus', 'refseq': 'NC_002549'}
     }
-    
-    outgroup_info = refseq_dict[virus_choice]
-    refseq_id = outgroup_info['refseq']
-    
-    # Download the reference sequence
+    # For pan (all 5), use Bombali ebolavirus as outgroup (not in the 5 species)
+    bombali_refseq = 'NC_039345'
+
+    if len(virus_set) == 1:
+        virus_choice = virus_list[0]
+        outgroup_info = refseq_dict[virus_choice]
+        refseq_id = outgroup_info['refseq']
+        outgroup_species = outgroup_info['outgroup']
+    elif len(virus_set) >= 2:
+        # Pan or any multi-species: use Bombali ebolavirus as sole outgroup
+        refseq_id = bombali_refseq
+        outgroup_species = 'Bombali_ebolavirus'
+    else:
+        # Multi (2–4 species): use first species not in the set
+        for sp in refseq_dict:
+            if sp not in virus_set:
+                outgroup_info = refseq_dict[sp]
+                refseq_id = outgroup_info['refseq']
+                outgroup_species = outgroup_info['outgroup']
+                break
+        else:
+            refseq_id = refseq_dict['Zaire_ebolavirus']['refseq']
+            outgroup_species = 'Sudan_ebolavirus'
+
     handle = Entrez.efetch(db="nucleotide", id=refseq_id, rettype="gb", retmode="text")
     record = SeqIO.read(handle, "genbank")
     handle.close()
-    
-    return record, outgroup_info['outgroup']
+
+    return record, outgroup_species
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
@@ -228,8 +313,8 @@ def cli_main():
                                help='Create multiple sequence alignment and trimming (without phylogenetic tree)')
     
     # Non-interactive mode arguments
-    parser.add_argument('--virus', type=str, choices=['1', '2', '3', '4', '5'],
-                       help='Virus choice: 1=Zaire, 2=Sudan, 3=Bundibugyo, 4=Tai Forest, 5=Reston')
+    parser.add_argument('--virus', type=str,
+                       help='Virus choice: 1-5 (single), 6 (all 5 species), or comma-separated e.g. 1,2 or 1,2,3')
     parser.add_argument('--genome', type=str, choices=['1', '2', '3'],
                        help='Genome type: 1=Complete, 2=Partial, 3=All')
     parser.add_argument('--completeness', type=float,
@@ -312,25 +397,35 @@ def main(args, non_interactive=False):
     }
     
     if non_interactive:
-        # Use command-line arguments directly
-        choice = args.virus
-        virus_display_name = virus_options[choice]
-        virus_choice = virus_processing_names[choice]
-        virus_type = virus_choice.split('_')[0]
+        choice = args.virus.strip().lower()
+        virus_choices, base_name = parse_virus_selection(choice, virus_processing_names)
+        if not virus_choices:
+            print(f"Invalid virus selection: {args.virus}. Use 1-6 or comma-separated (e.g. 1,2).")
+            return
+        virus_display_name = base_name if len(virus_choices) > 1 else virus_options.get(
+            next((k for k, v in virus_processing_names.items() if v == virus_choices[0]), ''), base_name
+        )
         genome_choice = args.genome
         completeness_threshold = args.completeness if args.genome == '2' else 0
         host_choice = args.host
         metadata_choice = args.metadata
         beast_choice = args.beast if args.metadata in ['2', '3'] else '1'
     else:
-        # Interactive mode (keep existing interactive code)
+        # Interactive mode
         print("\nAvailable Ebola virus species:")
         for key, value in virus_options.items():
             print(f"{key}. {value}")
-        choice = input("\nSelect the virus type (1-5): ")
-        virus_display_name = virus_options[choice]
-        virus_choice = virus_processing_names[choice]
-        virus_type = virus_choice.split('_')[0]
+        print("6. Pan (all 5 species)")
+        print("   Or enter multiple species as comma-separated numbers (e.g. 1,2 or 1,2,3)")
+        choice = input("\nSelect the virus type (1-6, or e.g. 1,2): ").strip()
+        virus_choices, base_name = parse_virus_selection(choice, virus_processing_names)
+        if not virus_choices:
+            print("Invalid selection. Use 1-6 (6 = all 5 species) or e.g. 1,2 for multiple.")
+            return
+        virus_display_name = "Pan (all 5)" if base_name == "pan" else (
+            ", ".join(virus_options.get(next((k for k, v in virus_processing_names.items() if v == s), ''), s) for s in virus_choices)
+            if len(virus_choices) > 1 else virus_options.get(choice, base_name)
+        )
         
         # Show genome completeness options
         print("\nGenome completeness options:")
@@ -367,17 +462,28 @@ def main(args, non_interactive=False):
         for key, value in metadata_options.items():
             print(f"{key}. {value}")
         metadata_choice = input("\nSelect metadata filter (1-4): ")
+        beast_choice = '1'  # BEAST only via command line (--beast 2)
         
-        # Get BEAST choice if applicable
-        beast_choice = '1'
-        if metadata_choice in ['2', '3']:
-            print("\nDo you want to generate BEAST input format?")
-            print("1. No")
-            print("2. Yes")
-            beast_choice = input("\nSelect BEAST option (1-2): ")
+        # Alignment and phylogeny (interactive only)
+        print("\nDo you want to perform alignment?")
+        print("1. Whole genome alignment")
+        print("2. No")
+        alignment_choice = input("\nSelect alignment option (1-2): ").strip()
+        while alignment_choice not in ('1', '2'):
+            print("Please enter 1 or 2")
+            alignment_choice = input("Select alignment option (1-2): ").strip()
+        print("\nDo you want to build a phylogeny?")
+        print("1. Yes")
+        print("2. No")
+        phylogeny_choice = input("\nSelect phylogeny option (1-2): ").strip()
+        while phylogeny_choice not in ('1', '2'):
+            print("Please enter 1 or 2")
+            phylogeny_choice = input("Select phylogeny option (1-2): ").strip()
+        args.phylogeny = (phylogeny_choice == '1')
+        args.alignment = (alignment_choice == '1' and phylogeny_choice != '1')
     
     # Download sequences
-    output_file, query = download_sequences(virus_choice, genome_choice, host_choice, metadata_choice, completeness_threshold)
+    output_file, query = download_sequences(virus_choices, genome_choice, host_choice, metadata_choice, completeness_threshold)
     
     # Exit if no sequences found
     if output_file is None:
@@ -400,38 +506,37 @@ def main(args, non_interactive=False):
         sequences_to_remove = get_sequences_to_remove(args.remove)
     
     # Get summary information
-    location_counts, unknown_count, oldest_record, oldest_year, total_sequences = summarize_locations(records, completeness_threshold, virus_choice)
+    location_counts, unknown_count, oldest_record, oldest_year, total_sequences = summarize_locations(records, completeness_threshold, virus_choices)
     
-    # Get outgroup reference sequence
-    outgroup_record, outgroup_species = get_outgroup_reference(virus_choice)
+    genome_type_str = "complete" if genome_choice == '1' else "all"
+    host_str = host_choice if host_choice != '3' else "allhosts"
+    base_filename = f"{base_name}_{genome_type_str}_{host_str}"
+    fasta_filename = f"filtered_{base_filename}.fasta"
+    summary_filename = f"summary_{base_filename}.txt"
+    
+    # Outgroup only when --phylogeny (for tree rooting)
+    outgroup_record = outgroup_species = outgroup_filename = None
+    if args.phylogeny:
+        outgroup_record, outgroup_species = get_outgroup_reference(virus_choices)
+        outgroup_filename = f"outgroup_{outgroup_species.lower()}_{genome_type_str}_{host_str}.fasta"
     
     # Create output directories and files
     os.makedirs("FASTA", exist_ok=True)
     if beast_choice == '2':
         os.makedirs("BEAST_input", exist_ok=True)
     
-    # Create output filenames
-    genome_type_str = "complete" if genome_choice == '1' else "all"
-    host_str = host_choice if host_choice != '3' else "allhosts"
-    base_filename = f"{virus_choice.lower()}_{genome_type_str}_{host_str}"
-    fasta_filename = f"filtered_{base_filename}.fasta"
-    outgroup_filename = f"outgroup_{outgroup_species.lower()}_{genome_type_str}_{host_str}.fasta"
-    summary_filename = f"summary_{base_filename}.txt"
-    
-    # Write outgroup to separate FASTA file
-    with open(outgroup_filename, "w") as outgroup_file:
-        # Format outgroup header based on metadata choice
-        if metadata_choice == '1':  # Location only
-            outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda"
-        elif metadata_choice == '2':  # Date only
-            outgroup_record.id = f"{outgroup_record.id}/04-Aug-2004"
-        elif metadata_choice == '3':  # Both
-            outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda/04-Aug-2004"
-        else:  # All sequences
-            outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda"
-        
-        outgroup_record.description = ""
-        SeqIO.write(outgroup_record, outgroup_file, "fasta")
+    if args.phylogeny and outgroup_record is not None:
+        with open(outgroup_filename, "w") as outgroup_file:
+            if metadata_choice == '1':
+                outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda"
+            elif metadata_choice == '2':
+                outgroup_record.id = f"{outgroup_record.id}/04-Aug-2004"
+            elif metadata_choice == '3':
+                outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda/04-Aug-2004"
+            else:
+                outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda"
+            outgroup_record.description = ""
+            SeqIO.write(outgroup_record, outgroup_file, "fasta")
     
     # Process sequences and write FASTA files
     sequences_written = 0
@@ -440,13 +545,13 @@ def main(args, non_interactive=False):
     with open(fasta_path, "w") as output:
         for record in records:
             try:
-                # Check if sequence should be removed
+                record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
                 if record.id in sequences_to_remove:
                     print(f"Removing sequence: {record.id}")
                     sequences_removed += 1
                     continue
                 
-                formatted_id = format_record_id(record, virus_choice, metadata_choice)
+                formatted_id = format_record_id(record, record_species, metadata_choice)
                 if formatted_id:
                     record.id = formatted_id
                     record.description = ""
@@ -463,28 +568,26 @@ def main(args, non_interactive=False):
     fasta_location_file = os.path.join("FASTA", "location.txt")
     with open(fasta_location_file, "w") as loc_file:
         for record in records:
+            record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
             if record.id != "MF102255.1":
                 location = get_location(record)
                 if location != "Unknown":
-                    formatted_id = format_record_id(record, virus_choice, metadata_choice)
+                    formatted_id = format_record_id(record, record_species, metadata_choice)
                     if formatted_id:
                         loc_file.write(f"{formatted_id}\t{location}\n")
-        
-        # Add outgroup to location file
-        outgroup_location = "Uganda"
-        formatted_outgroup_id = format_record_id(outgroup_record, outgroup_species, metadata_choice)
-        loc_file.write(f"{formatted_outgroup_id}\t{outgroup_location}\n")
+        if outgroup_record is not None:
+            outgroup_location = "Uganda"
+            formatted_outgroup_id = format_record_id(outgroup_record, outgroup_species, metadata_choice)
+            loc_file.write(f"{formatted_outgroup_id}\t{outgroup_location}\n")
     
     # Create BEAST files if requested
     if beast_choice == '2':
         beast_fasta = os.path.join("BEAST_input", f"beast_{os.path.basename(fasta_filename)}")
-        beast_outgroup = os.path.join("BEAST_input", f"beast_{os.path.basename(outgroup_filename)}")
-        
-        # Create BEAST format files
         with open(beast_fasta, "w") as output:
             for record in records:
+                record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
                 if record.id != "MF102255.1":
-                    formatted_id = format_record_id(record, virus_choice, '2')
+                    formatted_id = format_record_id(record, record_species, '2')
                     if formatted_id:
                         date_str = formatted_id.split('/')[-1]
                         decimal_date = convert_to_decimal_date(date_str)
@@ -493,42 +596,43 @@ def main(args, non_interactive=False):
                             beast_record.id = f"{record.id.split('/')[0]}/{decimal_date}"
                             beast_record.description = ""
                             SeqIO.write(beast_record, output, "fasta")
-        
-        # Create BEAST format outgroup
-        with open(beast_outgroup, "w") as output:
-            beast_outgroup = outgroup_record[:]
-            beast_outgroup.id = f"{outgroup_record.id.split('/')[0]}/2004.591"
-            beast_outgroup.description = ""
-            SeqIO.write(beast_outgroup, output, "fasta")
-        
-        # Create location file if needed
+        if outgroup_record is not None:
+            beast_outgroup_path = os.path.join("BEAST_input", f"beast_{os.path.basename(outgroup_filename)}")
+            with open(beast_outgroup_path, "w") as output:
+                beast_outgroup_rec = outgroup_record[:]
+                beast_outgroup_rec.id = f"{outgroup_record.id.split('/')[0]}/2004.591"
+                beast_outgroup_rec.description = ""
+                SeqIO.write(beast_outgroup_rec, output, "fasta")
         if metadata_choice == '3':
             location_file = os.path.join("BEAST_input", "location.txt")
             with open(location_file, "w") as loc_file:
                 for record in records:
+                    record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
                     if record.id != "MF102255.1":
                         location = get_location(record)
                         if location != "Unknown":
-                            formatted_id = format_record_id(record, virus_choice, '2')
+                            formatted_id = format_record_id(record, record_species, '2')
                             if formatted_id:
                                 date_str = formatted_id.split('/')[-1]
                                 decimal_date = convert_to_decimal_date(date_str)
                                 if decimal_date:
                                     beast_id = f"{record.id.split('/')[0]}/{decimal_date}"
                                     loc_file.write(f"{beast_id}\t{location}\n")
-                
-                # Add outgroup
-                outgroup_date = "2004.591"
-                beast_outgroup_id = f"{outgroup_record.id.split('/')[0]}/{outgroup_date}"
-                loc_file.write(f"{beast_outgroup_id}\tUganda\n")
+                if outgroup_record is not None:
+                    outgroup_date = "2004.591"
+                    beast_outgroup_id = f"{outgroup_record.id.split('/')[0]}/{outgroup_date}"
+                    loc_file.write(f"{beast_outgroup_id}\tUganda\n")
     
     # Write summary file
     with open(summary_filename, "w") as summary:
-        summary.write("=== Suggested Outgroup (Reference Sequence from Sister Species) ===\n")
-        summary.write(f"Species: {outgroup_species}\n")
-        summary.write(f"Sequence ID: {outgroup_record.id}\n")
-        summary.write("Type: Reference sequence (RefSeq)\n")
-        summary.write(f"File: FASTA/{os.path.basename(outgroup_filename)}\n")
+        if outgroup_record is not None:
+            summary.write("=== Suggested Outgroup (for tree rooting when using --phylogeny) ===\n")
+            summary.write(f"Species: {outgroup_species}\n")
+            summary.write(f"Sequence ID: {outgroup_record.id}\n")
+            summary.write("Type: Reference sequence (RefSeq)\n")
+            summary.write(f"File: FASTA/{os.path.basename(outgroup_filename)}\n")
+        else:
+            summary.write("Outgroup not included (use --phylogeny to add outgroup for tree rooting).\n")
         
         # Add location counts if available
         if location_counts:
@@ -548,11 +652,11 @@ def main(args, non_interactive=False):
             summary.write(f"Initial sequences downloaded: {len(records)}\n")
             summary.write(f"Final sequences in dataset: {sequences_written}\n")
         
-        # Update BEAST section if it was created
         if beast_choice == '2':
             summary.write("\n=== BEAST Input Files ===\n")
             summary.write(f"Main sequences: BEAST_input/beast_{os.path.basename(fasta_filename)}\n")
-            summary.write(f"Outgroup sequence: BEAST_input/beast_{os.path.basename(outgroup_filename)}\n")
+            if outgroup_record is not None:
+                summary.write(f"Outgroup sequence: BEAST_input/beast_{os.path.basename(outgroup_filename)}\n")
             if metadata_choice == '3':
                 summary.write(f"Location data: BEAST_input/location.txt\n")
     
@@ -560,10 +664,8 @@ def main(args, non_interactive=False):
         # Create FASTA directory and move files
         os.makedirs("FASTA", exist_ok=True)
         
-        # Move downloaded FASTA files
-        if os.path.exists(fasta_filename):
-            os.rename(fasta_filename, os.path.join("FASTA", fasta_filename))
-        if os.path.exists(outgroup_filename):
+        # Move outgroup FASTA to FASTA/ when --phylogeny was used
+        if outgroup_filename and os.path.exists(outgroup_filename):
             os.rename(outgroup_filename, os.path.join("FASTA", outgroup_filename))
         
         # Copy consensus file if provided
@@ -573,10 +675,9 @@ def main(args, non_interactive=False):
             if not consensus_file:
                 print("Failed to copy consensus file")
         
-        # Create location.txt
         fasta_path = os.path.join("FASTA", fasta_filename)
-        outgroup_path = os.path.join("FASTA", outgroup_filename)
-        if os.path.exists(fasta_path) and os.path.exists(outgroup_path):
+        outgroup_path = os.path.join("FASTA", outgroup_filename) if outgroup_filename else None
+        if os.path.exists(fasta_path) and outgroup_path and os.path.exists(outgroup_path):
             print("Creating location file in FASTA directory...")
             create_fasta_location_file(fasta_path, outgroup_path)
         
@@ -605,11 +706,17 @@ def main(args, non_interactive=False):
     print(f"- Summary information saved to {summary_filename}")
     if beast_choice == '2':
         print(f"- BEAST files saved in BEAST_input directory")
+    if args.alignment:
+        print(f"- Alignment output in Alignment/ (FASTA, MAFFT, Trimmed)")
+    if args.phylogeny:
+        print(f"- Phylogeny output in Phylogeny/")
 
-def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice, completeness_threshold=0):
-    """Download sequences from GenBank"""
+def download_sequences(virus_choices, genome_choice, host_choice, metadata_choice, completeness_threshold=0):
+    """Download sequences from GenBank. virus_choices: list of species (e.g. ['Zaire_ebolavirus'] or multiple for pan/multi)."""
     Entrez.email = "anonymous@example.com"
-    
+    if isinstance(virus_choices, str):
+        virus_choices = [virus_choices]
+
     # Reference sequence IDs for each virus type
     reference_sequences = {
         'Zaire_ebolavirus': 'NC_002549.1',
@@ -621,12 +728,15 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
 
     # Build query with all filters
     query_parts = []
-    
-    # Add virus species filter with variants
-    if virus_choice == "Zaire_ebolavirus":
-        query_parts.append('("Zaire ebolavirus"[organism] OR "Zaire Ebolavirus"[organism] OR "ZEBOV"[All Fields])')
-    else:
-        query_parts.append(f'"{virus_choice}"[organism]')
+
+    # Virus species filter: one or more species (OR)
+    organism_clauses = []
+    for v in virus_choices:
+        if v == "Zaire_ebolavirus":
+            organism_clauses.append('("Zaire ebolavirus"[organism] OR "Zaire Ebolavirus"[organism] OR "ZEBOV"[All Fields])')
+        else:
+            organism_clauses.append(f'"{v}"[organism]')
+    query_parts.append("(" + " OR ".join(organism_clauses) + ")")
 
     # Add host filter with multiple possible formats
     if host_choice == '1':  # Human
@@ -634,59 +744,62 @@ def download_sequences(virus_choice, genome_choice, host_choice, metadata_choice
     elif host_choice == '2':  # Non-human
         query_parts.append('("macaque"[host] OR "monkey"[host] OR "Pan troglodytes"[host] OR "Gorilla"[host] OR "bat"[host] OR "cynomolgus macaque"[host] OR "cynomolgus_macaque"[host] OR "cynomolgusmacaque"[host] OR "Macaca fascicularis"[host] OR "Macaca mulatta"[host] OR "rhesus"[host]) NOT ("Homo sapiens"[host] OR "human"[host])')
     # For host_choice == '3' (All hosts), don't add any host filter
-    
+
     # Add genome completeness filter
     if genome_choice == '1':  # Complete genomes only
         query_parts.append('("complete genome"[Title] OR "complete sequence"[Title])')
     elif genome_choice == '2' and completeness_threshold > 0:  # Partial genomes with threshold
-        ref_length = get_reference_length(virus_choice.split('_')[0])
-        min_length = int(ref_length * (completeness_threshold/100))
-        query_parts.append(f'"{min_length}"[SLEN]:"{ref_length}"[SLEN]')
-    
+        ref_lengths = [get_reference_length(v) for v in virus_choices]
+        min_ref = min(ref_lengths)
+        max_ref = max(ref_lengths)
+        min_length = int(min_ref * (completeness_threshold / 100))
+        query_parts.append(f'"{min_length}"[SLEN]:"{max_ref}"[SLEN]')
+
     # Combine all query parts
     query = " AND ".join(query_parts)
-    
-    # Download sequences
+
     output_file = "downloaded_genomes.gb"
-    ref_id = reference_sequences[virus_choice]
-    
-    # First, get the list of IDs from the search
+
     handle = Entrez.esearch(db="nucleotide", term=query, retmax=10000)
     record = Entrez.read(handle)
     handle.close()
     id_list = record["IdList"]
-    
-    # Remove reference ID from id_list if it's present to avoid duplication
-    if ref_id in id_list:
-        id_list.remove(ref_id)
-    
-    print(f"\nFound {len(id_list)} sequences matching criteria...")
-    
-    with open(output_file, "w") as out_handle:
-        # Always download reference sequence first
-        print(f"\nDownloading reference sequence {ref_id}...")
-        ref_handle = Entrez.efetch(db="nucleotide", id=ref_id, rettype="gb", retmode="text")
-        out_handle.write(ref_handle.read())
-        ref_handle.close()
-        time.sleep(1)  # Be nice to NCBI servers
 
-        # Then download the rest of the sequences
+    # Remove reference IDs if they appear in search results (no refs added to download; refs only used as outgroup when --phylogeny)
+    ref_ids = [reference_sequences[v] for v in virus_choices]
+    for ref_id in ref_ids:
+        if ref_id in id_list:
+            id_list.remove(ref_id)
+
+    print(f"\nFound {len(id_list)} sequences matching criteria.")
+
+    with open(output_file, "w") as out_handle:
         batch_size = 100
+        n_batches = max(1, (len(id_list) - 1) // batch_size + 1)
         for i in range(0, len(id_list), batch_size):
             batch = id_list[i:i + batch_size]
-            print(f"Downloading batch {(i//batch_size)+1} of {(len(id_list)-1)//batch_size + 1}...")
-            fetch_handle = Entrez.efetch(db="nucleotide", 
-                                       id=batch,
-                                       rettype="gb", 
-                                       retmode="text")
+            print(f"Downloading batch {(i//batch_size)+1} of {n_batches}...")
+            fetch_handle = Entrez.efetch(db="nucleotide",
+                                         id=batch,
+                                         rettype="gb",
+                                         retmode="text")
             out_handle.write(fetch_handle.read())
             fetch_handle.close()
-            time.sleep(1)  # Be nice to NCBI servers
-    
+            time.sleep(1)
+
     return output_file, query
 
+# Map processing names to reference-length keys (for get_reference_length)
+PROCESSING_TO_REF_KEY = {
+    'Zaire_ebolavirus': 'Zaire',
+    'Sudan_ebolavirus': 'Sudan',
+    'Bundibugyo_ebolavirus': 'Bundibugyo',
+    'Tai_Forest_ebolavirus': 'Tai Forest',
+    'Reston_ebolavirus': 'Reston',
+}
+
 def get_reference_length(virus_type):
-    # Reference lengths for different Ebola virus species
+    """virus_type: either ref key (e.g. 'Zaire') or processing name (e.g. 'Zaire_ebolavirus')."""
     reference_lengths = {
         'Zaire': 18959,
         'Sudan': 18875,
@@ -694,51 +807,40 @@ def get_reference_length(virus_type):
         'Tai Forest': 18935,
         'Reston': 18891
     }
-    return reference_lengths.get(virus_type, 18959)
+    key = PROCESSING_TO_REF_KEY.get(virus_type, virus_type)
+    return reference_lengths.get(key, 18959)
 
-def summarize_locations(records, threshold, virus_choice):
+def summarize_locations(records, threshold, virus_choice_or_list):
+    """virus_choice_or_list: single species name or list of species (for pan/multi). Counts all records so summary matches FASTA/location.txt."""
     location_counts = {}
     unknown_count = 0
     oldest_record = None
     oldest_year = 9999
     total_sequences = 0
-    
+
     for record in records:
-        # For "All genomes" option, don't apply threshold filter
-        if threshold == 0:  # Add this condition for "All genomes" option
-            should_include = True
+        # Count every record so summary total and location breakdown match FASTA and location.txt
+        location = get_location(record)
+        total_sequences += 1
+        if location == "Unknown":
+            unknown_count += 1
         else:
-            seq_length = get_sequence_length(record)
-            ref_length = get_reference_length(virus_choice.split()[0])
-            completeness = (seq_length / ref_length) * 100
-            should_include = completeness >= threshold
-        
-        if should_include:
-            location = get_location(record)
-            total_sequences += 1
-            
-            if location == "Unknown":
-                unknown_count += 1
-            else:
-                # Count locations
-                location_counts[location] = location_counts.get(location, 0) + 1
-            
-            # Check for oldest sequence (include unknown locations)
-            year = get_collection_date(record)
-            if year != 9999:  # Only consider records with valid dates
-                if year < oldest_year:
-                    oldest_year = year
+            location_counts[location] = location_counts.get(location, 0) + 1
+        year = get_collection_date(record)
+        if year != 9999:
+            if year < oldest_year:
+                oldest_year = year
+                oldest_record = record
+            elif year == oldest_year:
+                if get_location(record) == 'Democratic_Republic_of_the_Congo':
                     oldest_record = record
-                elif year == oldest_year:  # If same year, prefer DRC sequences (for 1976)
-                    if get_location(record) == 'Democratic_Republic_of_the_Congo':
-                        oldest_record = record
-                        oldest_year = year
+                    oldest_year = year
     
     return location_counts, unknown_count, oldest_record, oldest_year, total_sequences
 
 def format_record_id(record, virus_choice, metadata_choice):
-    """Format record ID based on metadata choice"""
-    base_id = record.id
+    """Format record ID based on metadata choice. Uses accession only as base so repeated calls don't duplicate."""
+    base_id = record.id.split('/')[0]
     location = get_location(record)
     date = get_collection_date(record)
     virus_name = virus_choice
@@ -910,162 +1012,106 @@ def check_alignment_dependencies():
         print("Please install these tools and ensure they are in your PATH")
         sys.exit(1)
 
-def create_alignment_only(fasta_dir):
-    """Create multiple sequence alignment and trimming without phylogenetic tree."""
+def run_alignment_pipeline(source_fasta_dir):
+    """
+    Build Alignment folder: Alignment/FASTA (combined), Alignment/MAFFT, Alignment/Trimmed.
+    source_fasta_dir: folder with original FASTA files (e.g. 'FASTA').
+    Returns (trimmed_fasta_path, True) on success, (None, False) on failure.
+    """
+    check_alignment_dependencies()
+    alignment_dir = "Alignment"
+    align_fasta_dir = os.path.join(alignment_dir, "FASTA")
+    mafft_dir = os.path.join(alignment_dir, "MAFFT")
+    trimmed_dir = os.path.join(alignment_dir, "Trimmed")
+    os.makedirs(align_fasta_dir, exist_ok=True)
+    os.makedirs(mafft_dir, exist_ok=True)
+    os.makedirs(trimmed_dir, exist_ok=True)
+
+    combined_fasta = os.path.join(align_fasta_dir, "Ebola_Combined.fasta")
+    print("Creating combined FASTA file in Alignment/FASTA...")
+    with open(combined_fasta, 'w') as outfile:
+        for fasta in os.listdir(source_fasta_dir):
+            if fasta.endswith(('.fasta', '.fa')) and fasta != "Ebola_Combined.fasta":
+                fasta_path = os.path.join(source_fasta_dir, fasta)
+                remove_duplicate_sequences(fasta_path)
+                with open(fasta_path) as infile:
+                    outfile.write(infile.read())
+    print("Combined FASTA file created")
+
+    aligned_fasta = os.path.join(mafft_dir, "Ebola_Combined_aligned.fasta")
+    print("Running MAFFT alignment...")
+    mafft_cmd = f"mafft --thread -1 --auto {combined_fasta} > {aligned_fasta}"
+    result = subprocess.run(mafft_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        print(f"Error during MAFFT alignment: {result.stderr}")
+        return None, False
+    print("MAFFT alignment complete")
+
+    trimmed_fasta = os.path.join(trimmed_dir, "Ebola_trimmed.fasta")
+    print("Running TrimAl...")
+    trimal_cmd = f"trimal -in {aligned_fasta} -out {trimmed_fasta} -automated1"
+    result = subprocess.run(trimal_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        print(f"Error during TrimAl: {result.stderr}")
+        return None, False
+    print("TrimAl trimming complete")
+    return trimmed_fasta, True
+
+
+def create_alignment_only(source_fasta_dir):
+    """Create alignment in Alignment/ (FASTA, MAFFT, Trimmed) from original FASTA folder."""
     print("\nStarting alignment pipeline...")
-    
     try:
-        # Check dependencies first
-        check_alignment_dependencies()
-        
-        # Create output directories
-        mafft_dir = os.path.join(fasta_dir, "MAFFT_output")
-        trimal_dir = os.path.join(fasta_dir, "TrimAl_output")
-        
-        os.makedirs(mafft_dir, exist_ok=True)
-        os.makedirs(trimal_dir, exist_ok=True)
-        
-        # Concatenate all FASTA files
-        combined_fasta = os.path.join(fasta_dir, "Ebola_Combined.fasta")
-        print(f"Creating combined FASTA file...")
-        with open(combined_fasta, 'w') as outfile:
-            for fasta in os.listdir(fasta_dir):
-                if fasta.endswith(('.fasta', '.fa')) and fasta != "Ebola_Combined.fasta":
-                    fasta_path = os.path.join(fasta_dir, fasta)
-                    # Remove duplicates from input file before combining
-                    remove_duplicate_sequences(fasta_path)
-                    with open(fasta_path) as infile:
-                        outfile.write(infile.read())
-        print("Combined FASTA file created")
-        
-        # Run MAFFT alignment
-        aligned_fasta = os.path.join(mafft_dir, "Ebola_Combined_aligned.fasta")
-        print(f"\nRunning MAFFT alignment...")
-        mafft_cmd = f"mafft --thread -1 --auto {combined_fasta} > {aligned_fasta}"
-        result = subprocess.run(mafft_cmd, shell=True, stderr=subprocess.PIPE, text=True)
-        if result.returncode != 0:
-            print(f"Error during MAFFT alignment: {result.stderr}")
+        trimmed_fasta, ok = run_alignment_pipeline(source_fasta_dir)
+        if not ok:
+            print("Alignment pipeline completed with errors.")
             return
-        print("MAFFT alignment complete")
-        
-        # Run TrimAl
-        trimmed_fasta = os.path.join(trimal_dir, "Ebola_trimmed.fasta")
-        print(f"\nRunning TrimAl...")
-        trimal_cmd = f"trimal -in {aligned_fasta} -out {trimmed_fasta} -automated1"
-        result = subprocess.run(trimal_cmd, shell=True, stderr=subprocess.PIPE, text=True)
-        if result.returncode != 0:
-            print(f"Error during TrimAl: {result.stderr}")
-            print("TrimAl trimming failed!")
-            print(f"\nAlignment pipeline completed with errors!")
-            print(f"\nOutput files:")
-            print(f"- Combined FASTA: {combined_fasta}")
-            print(f"- MAFFT alignment: {aligned_fasta}")
-            print(f"- TrimAl output: FAILED - {trimmed_fasta} not created")
-            print(f"\nThe MAFFT alignment is available, but TrimAl trimming failed.")
-            print(f"You can still use the aligned sequences from: {aligned_fasta}")
-            return
-        print("TrimAl trimming complete")
-        
         print("\nAlignment pipeline completed successfully!")
-        print(f"\nOutput files:")
-        print(f"- Combined FASTA: {combined_fasta}")
-        print(f"- MAFFT alignment: {aligned_fasta}")
-        print(f"- TrimAl output: {trimmed_fasta}")
-        print(f"\nThe trimmed alignment is ready for phylogenetic analysis or other downstream applications.")
-        
+        print("Output: Alignment/FASTA (combined), Alignment/MAFFT, Alignment/Trimmed")
     except Exception as e:
         print(f"Error during alignment: {str(e)}")
 
-def create_phylogenetic_tree(fasta_dir):
-    """Create phylogenetic tree using MAFFT, TrimAl and IQTree2."""
+
+def create_phylogenetic_tree(source_fasta_dir):
+    """Build Alignment/ (if needed), then run IQTree2 in Phylogeny/ using trimmed alignment."""
     print("\nStarting phylogenetic analysis pipeline...")
-    
     try:
-        # Check dependencies first
         check_dependencies()
-        
-        # Create output directories
-        mafft_dir = os.path.join(fasta_dir, "MAFFT_output")
-        trimal_dir = os.path.join(fasta_dir, "TrimAl_output")
-        iqtree_dir = os.path.join(fasta_dir, "IQTree_output")
-        
-        os.makedirs(mafft_dir, exist_ok=True)
-        os.makedirs(trimal_dir, exist_ok=True)
-        os.makedirs(iqtree_dir, exist_ok=True)
-        
-        # Concatenate all FASTA files
-        combined_fasta = os.path.join(fasta_dir, "Ebola_Combined.fasta")
-        print(f"Creating combined FASTA file...")
-        with open(combined_fasta, 'w') as outfile:
-            for fasta in os.listdir(fasta_dir):
-                if fasta.endswith(('.fasta', '.fa')) and fasta != "Ebola_Combined.fasta":
-                    fasta_path = os.path.join(fasta_dir, fasta)
-                    # Remove duplicates from input file before combining
-                    remove_duplicate_sequences(fasta_path)
-                    with open(fasta_path) as infile:
-                        outfile.write(infile.read())
-        print("Combined FASTA file created")
-        
-        # Run MAFFT alignment
-        aligned_fasta = os.path.join(mafft_dir, "Ebola_Combined_aligned.fasta")
-        print(f"\nRunning MAFFT alignment...")
-        mafft_cmd = f"mafft --thread -1 --auto {combined_fasta} > {aligned_fasta}"
-        result = subprocess.run(mafft_cmd, shell=True, stderr=subprocess.PIPE, text=True)
-        if result.returncode != 0:
-            print(f"Error during MAFFT alignment: {result.stderr}")
+        trimmed_fasta, ok = run_alignment_pipeline(source_fasta_dir)
+        if not ok:
+            print("Alignment step failed; phylogeny not run.")
             return
-        print("MAFFT alignment complete")
-        
-        # Run TrimAl
-        trimmed_fasta = os.path.join(trimal_dir, "Ebola_trimmed.fasta")
-        print(f"\nRunning TrimAl...")
-        trimal_cmd = f"trimal -in {aligned_fasta} -out {trimmed_fasta} -automated1"
-        result = subprocess.run(trimal_cmd, shell=True, stderr=subprocess.PIPE, text=True)
-        if result.returncode != 0:
-            print(f"Error during TrimAl: {result.stderr}")
-            return
-        print("TrimAl trimming complete")
-        
-        # Run IQTree2
-        print(f"\nRunning IQTree2...")
-        # Change to IQTree directory and copy trimmed file there
-        trimmed_copy = os.path.join(iqtree_dir, "Ebola_trimmed.fasta")
+        phylogeny_dir = "Phylogeny"
+        os.makedirs(phylogeny_dir, exist_ok=True)
+        trimmed_copy = os.path.join(phylogeny_dir, "Ebola_trimmed.fasta")
         shutil.copy2(trimmed_fasta, trimmed_copy)
-        
-        # Run IQTree2 in its directory
+        print("Running IQTree2 in Phylogeny/...")
         current_dir = os.getcwd()
-        os.chdir(iqtree_dir)
-        iqtree_cmd = f"iqtree2 -s Ebola_trimmed.fasta -m MFP -bb 10000 -nt AUTO"
+        os.chdir(phylogeny_dir)
+        iqtree_cmd = "iqtree2 -s Ebola_trimmed.fasta -m MFP -bb 10000 -nt AUTO"
         result = subprocess.run(iqtree_cmd, shell=True, stderr=subprocess.PIPE, text=True)
-        os.chdir(current_dir)  # Change back to original directory
-        
+        os.chdir(current_dir)
         if result.returncode != 0:
             print(f"Error during IQTree2: {result.stderr}")
             return
         print("IQTree2 analysis complete")
-        
         print("\nPhylogenetic analysis pipeline completed successfully!")
-        print(f"\nOutput files:")
-        print(f"- MAFFT alignment: {aligned_fasta}")
-        print(f"- TrimAl output: {trimmed_fasta}")
-        print(f"- IQTree2 results: {iqtree_dir}")
-        
+        print("Output: Alignment/ (FASTA, MAFFT, Trimmed) and Phylogeny/ (IQTree2 results)")
     except Exception as e:
         print(f"Error during phylogenetic analysis: {str(e)}")
 
-def write_filtered_sequences(records, virus_choice, metadata_choice, output_file):
-    """Write filtered sequences to FASTA file and check for duplicates"""
+def write_filtered_sequences(records, virus_choice_or_list, metadata_choice, output_file):
+    """Write filtered sequences to FASTA file and check for duplicates. virus_choice_or_list: single species or list for pan/multi."""
+    virus_choices = virus_choice_or_list if isinstance(virus_choice_or_list, list) else [virus_choice_or_list]
     seen_headers = set()
     seen_accessions = set()
     unique_records = []
     duplicates_found = False
-    
+
     for record in records:
-        # Get base accession (everything before the first dot)
+        record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
         base_accession = record.id.split('.')[0]
-        
-        # Format the header
-        formatted_id = format_record_id(record, virus_choice, metadata_choice)
+        formatted_id = format_record_id(record, record_species, metadata_choice)
         
         # Skip if we've seen either the full formatted ID or the base accession
         if formatted_id in seen_headers or base_accession in seen_accessions:

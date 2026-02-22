@@ -86,7 +86,7 @@ ebolaseq -o my_analysis -c path/to/consensus.fasta -p
 ```
 
 The tool will interactively prompt you for choices about:
-- Virus species
+- Virus species (1–5, option 6 for Pan/all 5 species, or e.g. `1,2` for multiple)
 - Genome completeness
 - Host type
 - Metadata options
@@ -115,6 +115,8 @@ Required parameters for non-interactive mode:
   - 3 = Bundibugyo ebolavirus
   - 4 = Tai Forest ebolavirus
   - 5 = Reston ebolavirus
+  - 6 = Pan-Ebola: all 5 species
+  - Comma-separated = Multiple species (e.g. `1,2` for Zaire+Sudan, `1,2,3` for Zaire+Sudan+Bundibugyo)
 
 - `--genome`: Genome completeness
   - 1 = Complete genomes only
