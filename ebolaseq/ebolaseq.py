@@ -8,6 +8,8 @@ import datetime
 import time
 import argparse
 import shutil
+import tempfile
+from collections import OrderedDict
 
 # Import version from package
 try:
@@ -137,6 +139,32 @@ def get_collection_date(record):
                     
     return 9999  # Return large number for unknown dates
 
+# ebolaS species names (for protein pipeline)
+PROCESSING_TO_EBOLAS_SPECIES = {
+    'Zaire_ebolavirus': 'zaire',
+    'Sudan_ebolavirus': 'sudan',
+    'Reston_ebolavirus': 'reston',
+    'Bundibugyo_ebolavirus': 'bundibugyo',
+    'Tai_Forest_ebolavirus': 'tai_forest',
+}
+
+# CDS pipeline: RefSeq and coordinates per species (protein alignment)
+REFSEQ_IDS_CDS = {
+    "zaire": "NC_002549.1", "sudan": "NC_006432.1", "reston": "NC_004161.1",
+    "bundibugyo": "NC_014373.1", "tai_forest": "NC_014372.1",
+}
+SPECIES_REGIONS_CDS = {
+    "zaire": {"L": (11581, 18219), "NP": (470, 2689), "VP35": (3129, 4151), "VP40": (4479, 5459), "VP30": (8509, 9375), "VP24": (10345, 11100)},
+    "sudan": {"L": (11535, 18167), "NP": (458, 2674), "VP35": (3138, 4127), "VP40": (4454, 5434), "VP30": (8441, 9307), "VP24": (10299, 11054)},
+    "reston": {"L": (11550, 18188), "NP": (464, 2683), "VP35": (3155, 4144), "VP40": (4485, 5480), "VP30": (8490, 9353), "VP24": (10303, 11058)},
+    "bundibugyo": {"L": (11567, 18199), "NP": (458, 2677), "VP35": (3108, 4133), "VP40": (4461, 5441), "VP30": (8496, 9365), "VP24": (10335, 11090)},
+    "tai_forest": {"L": (11566, 18198), "NP": (464, 2683), "VP35": (3114, 4139), "VP40": (4467, 5447), "VP30": (8503, 9372), "VP24": (10339, 11094)},
+}
+PROTEIN_DESCRIPTIONS_CDS = {
+    "L": "RNA-dependent RNA polymerase", "NP": "nucleoprotein", "VP35": "polymerase cofactor",
+    "VP40": "matrix protein", "VP30": "minor nucleoprotein", "VP24": "membrane-associated protein",
+}
+
 # Map GenBank organism strings to internal processing names (with underscores)
 ORGANISM_TO_PROCESSING = {
     'Zaire ebolavirus': 'Zaire_ebolavirus',
@@ -244,18 +272,6 @@ def get_outgroup_reference(virus_choice_or_list):
 
     return record, outgroup_species
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Download and analyze Ebola virus sequences')
-    parser.add_argument('-o', '--output-dir', type=str, required=True, 
-                       help='Output directory for results')
-    parser.add_argument('-c', '--consensus-file', type=str, 
-                       help='Path to consensus FASTA file to include')
-    parser.add_argument('--phylogeny', '-p', action='store_true', 
-                       help='Create phylogenetic tree using IQTree2')
-    parser.add_argument('--remove', type=str,
-                       help='Path to text file containing headers/accession IDs to remove')
-    return parser.parse_args()
-
 def get_sequences_to_remove(remove_file):
     """Read list of sequences to remove from file."""
     # Get absolute path
@@ -291,49 +307,52 @@ def cli_main():
         description=f'Download and analyze Ebola virus sequences ({__version__})',
         prog='ebolaseq'
     )
-    
-    # Version argument
     parser.add_argument('--version', action='version', version=f'ebolaseq {__version__}', help="show program's version number")
-    
-    # Required argument
-    parser.add_argument('-o', '--output-dir', type=str, required=True, 
-                       help='Output directory for results')
-    
-    # Optional arguments
-    parser.add_argument('-c', '--consensus-file', type=str, 
-                       help='Path to consensus FASTA file to include')
-    parser.add_argument('--remove', type=str,
-                       help='Path to text file containing headers/accession IDs to remove')
-    
-    # Mutually exclusive group for phylogeny and alignment
-    analysis_group = parser.add_mutually_exclusive_group()
-    analysis_group.add_argument('--phylogeny', '-p', action='store_true', 
-                               help='Create phylogenetic tree using IQTree2')
-    analysis_group.add_argument('--alignment', '-a', action='store_true',
-                               help='Create multiple sequence alignment and trimming (without phylogenetic tree)')
-    
-    # Non-interactive mode arguments
-    parser.add_argument('--virus', type=str,
-                       help='Virus choice: 1-5 (single), 6 (all 5 species), or comma-separated e.g. 1,2 or 1,2,3')
-    parser.add_argument('--genome', type=str, choices=['1', '2', '3'],
-                       help='Genome type: 1=Complete, 2=Partial, 3=All')
-    parser.add_argument('--completeness', type=float,
-                       help='Minimum completeness percentage (1-100) when using --genome 2')
-    parser.add_argument('--host', type=str, choices=['1', '2', '3'],
-                       help='Host: 1=Human, 2=Non-human, 3=All')
-    parser.add_argument('--metadata', type=str, choices=['1', '2', '3', '4'],
-                       help='Metadata filter: 1=Location, 2=Date, 3=Both, 4=None')
-    parser.add_argument('--beast', type=str, choices=['1', '2'],
-                       help='BEAST format: 1=No, 2=Yes')
-    
+
+    req = parser.add_argument_group('Required')
+    req.add_argument('-o', '--output-dir', type=str, required=True, metavar='DIR',
+                     help='Output directory for all results')
+
+    opt = parser.add_argument_group('Optional — download filters (non-interactive)')
+    opt.add_argument('--virus', type=str, metavar='CHOICE',
+                     help='Species: 1 Zaire, 2 Sudan, 3 Bundibugyo, 4 Tai Forest, 5 Reston, 6 all five, or e.g. 1,2')
+    opt.add_argument('--genome', type=str, choices=['1', '2', '3'], metavar='{1,2,3}',
+                     help='1 complete only, 2 partial (use --completeness), 3 all')
+    opt.add_argument('--completeness', type=float, metavar='PCT',
+                     help='Min completeness percent (1–100) when genome=2')
+    opt.add_argument('--host', type=str, choices=['1', '2', '3'], metavar='{1,2,3}',
+                     help='1 human, 2 non-human, 3 all hosts')
+    opt.add_argument('--metadata', type=str, choices=['1', '2', '3', '4'], metavar='{1,2,3,4}',
+                     help='1 location only, 2 date only, 3 both, 4 no filter')
+    opt.add_argument('--beast', type=str, choices=['1', '2'], metavar='{1,2}',
+                     help='BEAST input: 1 no, 2 yes (only if metadata 2 or 3)')
+
+    opt_cons = parser.add_argument_group('Optional — consensus FASTA per species')
+    opt_cons.add_argument('--c_z', type=str, dest='consensus_zaire', metavar='FASTA', help='Zaire ebolavirus')
+    opt_cons.add_argument('--c_s', type=str, dest='consensus_sudan', metavar='FASTA', help='Sudan ebolavirus')
+    opt_cons.add_argument('--c_r', type=str, dest='consensus_reston', metavar='FASTA', help='Reston ebolavirus')
+    opt_cons.add_argument('--c_b', type=str, dest='consensus_bundibugyo', metavar='FASTA', help='Bundibugyo ebolavirus')
+    opt_cons.add_argument('--c_t', type=str, dest='consensus_tai', metavar='FASTA', help='Tai Forest ebolavirus')
+
+    opt_align = parser.add_argument_group('Optional — alignment and phylogeny')
+    opt_align.add_argument('--alignment', '-a', type=str, choices=['1', '2', '3'], default=None, metavar='{1,2,3}',
+                           help='1 whole-genome alignment, 2 protein (CDS) alignment, 3 no alignment')
+    opt_align.add_argument('--proteins', '-pr', type=str, default=None, metavar='LIST',
+                           help='For alignment=2: comma-separated L,NP,VP35,VP40,VP30,VP24')
+    opt_align.add_argument('--phylogeny', '-p', action='store_true', help='Build phylogeny from alignment')
+
+    opt_other = parser.add_argument_group('Optional — other')
+    opt_other.add_argument('--remove', type=str, metavar='FILE', help='File listing sequence IDs/headers to exclude')
+
     args = parser.parse_args()
-    
-    # Convert paths to absolute paths
+
     args.output_dir = os.path.abspath(args.output_dir)
-    if args.consensus_file:
-        args.consensus_file = os.path.abspath(args.consensus_file)
     if args.remove:
         args.remove = os.path.abspath(args.remove)
+    for attr in ('consensus_zaire', 'consensus_sudan', 'consensus_reston', 'consensus_bundibugyo', 'consensus_tai'):
+        p = getattr(args, attr, None)
+        if p:
+            setattr(args, attr, os.path.abspath(p))
     
     # Create output directory
     if not os.path.exists(args.output_dir):
@@ -410,6 +429,10 @@ def main(args, non_interactive=False):
         host_choice = args.host
         metadata_choice = args.metadata
         beast_choice = args.beast if args.metadata in ['2', '3'] else '1'
+        if args.alignment is None:
+            args.alignment = '3'
+        if args.alignment == '2' and not args.proteins:
+            args.proteins = 'L'
     else:
         # Interactive mode
         print("\nAvailable Ebola virus species:")
@@ -464,23 +487,52 @@ def main(args, non_interactive=False):
         metadata_choice = input("\nSelect metadata filter (1-4): ")
         beast_choice = '1'  # BEAST only via command line (--beast 2)
         
-        # Alignment and phylogeny (interactive only)
+        # Alignment type and protein selection (interactive only)
         print("\nDo you want to perform alignment?")
         print("1. Whole genome alignment")
-        print("2. No")
-        alignment_choice = input("\nSelect alignment option (1-2): ").strip()
-        while alignment_choice not in ('1', '2'):
-            print("Please enter 1 or 2")
-            alignment_choice = input("Select alignment option (1-2): ").strip()
-        print("\nDo you want to build a phylogeny?")
-        print("1. Yes")
-        print("2. No")
-        phylogeny_choice = input("\nSelect phylogeny option (1-2): ").strip()
-        while phylogeny_choice not in ('1', '2'):
-            print("Please enter 1 or 2")
-            phylogeny_choice = input("Select phylogeny option (1-2): ").strip()
-        args.phylogeny = (phylogeny_choice == '1')
-        args.alignment = (alignment_choice == '1' and phylogeny_choice != '1')
+        print("2. Protein (CDS-based, protein-level alignment)")
+        print("3. No")
+        alignment_choice = input("\nSelect alignment option (1-3): ").strip()
+        while alignment_choice not in ('1', '2', '3'):
+            print("Please enter 1, 2, or 3")
+            alignment_choice = input("Select alignment option (1-3): ").strip()
+        args.alignment = alignment_choice
+        args.proteins = None
+        if alignment_choice == '2':
+            print("\nSelect protein(s) to align (comma-separated for multiple, e.g. 1,2 or 1,2,3):")
+            print("1. L (RNA-dependent RNA polymerase)")
+            print("2. NP (nucleoprotein)")
+            print("3. VP35 (polymerase cofactor)")
+            print("4. VP40 (matrix protein)")
+            print("5. VP30 (minor nucleoprotein)")
+            print("6. VP24 (membrane-associated protein)")
+            protein_choice = input("\nSelect protein(s) (1-6 or e.g. 1,2): ").strip()
+            protein_map = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'VP30', '6': 'VP24'}
+            parts = [p.strip() for p in protein_choice.replace(',', ' ').split() if p.strip()]
+            prots = []
+            for p in parts:
+                if p in protein_map:
+                    prots.append(protein_map[p])
+                else:
+                    print("Invalid protein option; use 1-6 or e.g. 1,2")
+                    break
+            else:
+                if prots:
+                    args.proteins = ','.join(prots)
+            if not args.proteins:
+                args.proteins = 'L'
+                print("Defaulting to L.")
+        if alignment_choice in ('1', '2'):
+            print("\nDo you want to build a phylogeny?")
+            print("1. Yes")
+            print("2. No")
+            phylogeny_choice = input("\nSelect phylogeny option (1-2): ").strip()
+            while phylogeny_choice not in ('1', '2'):
+                print("Please enter 1 or 2")
+                phylogeny_choice = input("Select phylogeny option (1-2): ").strip()
+            args.phylogeny = (phylogeny_choice == '1')
+        else:
+            args.phylogeny = False
     
     # Download sequences
     output_file, query = download_sequences(virus_choices, genome_choice, host_choice, metadata_choice, completeness_threshold)
@@ -668,12 +720,14 @@ def main(args, non_interactive=False):
         if outgroup_filename and os.path.exists(outgroup_filename):
             os.rename(outgroup_filename, os.path.join("FASTA", outgroup_filename))
         
-        # Copy consensus file if provided
-        if args.consensus_file:
-            print(f"\nCopying consensus file {args.consensus_file}...")
-            consensus_file = copy_consensus_file(args.consensus_file, "FASTA")
-            if not consensus_file:
-                print("Failed to copy consensus file")
+        # Copy per-species consensus FASTA if provided (--c_z, --c_s, etc.)
+        for name, attr in [('zaire', 'consensus_zaire'), ('sudan', 'consensus_sudan'), ('reston', 'consensus_reston'),
+                          ('bundibugyo', 'consensus_bundibugyo'), ('tai', 'consensus_tai')]:
+            path = getattr(args, attr, None)
+            if path:
+                dst = copy_consensus_file(path, "FASTA", dest_name="consensus_%s.fasta" % name)
+                if not dst:
+                    print("Failed to copy consensus: %s" % path)
         
         fasta_path = os.path.join("FASTA", fasta_filename)
         outgroup_path = os.path.join("FASTA", outgroup_filename) if outgroup_filename else None
@@ -681,17 +735,18 @@ def main(args, non_interactive=False):
             print("Creating location file in FASTA directory...")
             create_fasta_location_file(fasta_path, outgroup_path)
         
-        # Run phylogenetic analysis if requested
-        if args.phylogeny:
-            print("\nStarting phylogenetic analysis...")
-            create_phylogenetic_tree("FASTA")
-            print("Phylogenetic analysis completed!")
-        
-        # Run alignment only if requested
-        elif args.alignment:
-            print("\nStarting alignment analysis...")
-            create_alignment_only("FASTA")
-            print("Alignment analysis completed!")
+        # Run alignment and/or phylogeny based on alignment type
+        if args.alignment == '1':
+            if args.phylogeny:
+                print("\nStarting phylogenetic analysis (whole genome)...")
+                create_phylogenetic_tree("FASTA")
+                print("Phylogenetic analysis completed!")
+            else:
+                print("\nStarting whole-genome alignment...")
+                create_alignment_only("FASTA")
+                print("Alignment completed!")
+        elif args.alignment == '2':
+            run_protein_pipeline("FASTA", args.proteins, args.phylogeny, virus_choices, base_name, args)
             
     except Exception as e:
         print(f"Error during processing: {str(e)}")
@@ -706,10 +761,15 @@ def main(args, non_interactive=False):
     print(f"- Summary information saved to {summary_filename}")
     if beast_choice == '2':
         print(f"- BEAST files saved in BEAST_input directory")
-    if args.alignment:
-        print(f"- Alignment output in Alignment/ (FASTA, MAFFT, Trimmed)")
-    if args.phylogeny:
-        print(f"- Phylogeny output in Phylogeny/")
+    if args.alignment == '1':
+        if args.phylogeny:
+            print(f"- Phylogeny output in Phylogeny/")
+        else:
+            print(f"- Alignment output in Alignment/ (FASTA, MAFFT, Trimmed)")
+    elif args.alignment == '2':
+        print(f"- Protein alignment output in Alignment/")
+        if args.phylogeny:
+            print(f"- Phylogeny per protein in Phylogeny/<protein>/")
 
 def download_sequences(virus_choices, genome_choice, host_choice, metadata_choice, completeness_threshold=0):
     """Download sequences from GenBank. virus_choices: list of species (e.g. ['Zaire_ebolavirus'] or multiple for pan/multi)."""
@@ -972,16 +1032,15 @@ def create_fasta_location_file(fasta_path, outgroup_path):
                         loc_file.write(f"{header}\t{location}\n")
                     break  # Only need first header from outgroup
 
-def copy_consensus_file(consensus_file, fasta_dir):
-    """Copy consensus FASTA file to the output FASTA directory."""
+def copy_consensus_file(consensus_file, fasta_dir, dest_name=None):
+    """Copy consensus FASTA to FASTA directory. dest_name: optional output filename (e.g. consensus_zaire.fasta)."""
     if not os.path.exists(consensus_file):
         print(f"Warning: Consensus file {consensus_file} not found")
         return None
-    
-    filename = os.path.basename(consensus_file)
+    filename = dest_name if dest_name else os.path.basename(consensus_file)
     dst = os.path.join(fasta_dir, filename)
     shutil.copy2(consensus_file, dst)
-    print(f"Copied consensus file: {filename}")
+    print(f"Copied consensus: {filename}")
     return dst
 
 def check_dependencies():
@@ -1011,6 +1070,313 @@ def check_alignment_dependencies():
         print(f"Error: Missing required tools: {', '.join(missing)}")
         print("Please install these tools and ensure they are in your PATH")
         sys.exit(1)
+
+def check_protein_cds_dependencies():
+    """Check minimap2 and pal2nal for protein (CDS) alignment pipeline."""
+    for tool in ['minimap2', 'mafft']:
+        if subprocess.run(['which', tool], capture_output=True).returncode != 0:
+            print("Error: %s not found. Required for protein alignment." % tool)
+            sys.exit(1)
+    if subprocess.run(['which', 'pal2nal.pl'], capture_output=True).returncode != 0:
+        print("Error: pal2nal.pl not found. Install with e.g. conda install -c bioconda pal2nal")
+        sys.exit(1)
+
+def _fetch_refseq_cds(accession):
+    """Fetch RefSeq FASTA from NCBI."""
+    try:
+        from urllib.request import urlopen
+        url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=%s&rettype=fasta&retmode=text" % accession
+        with urlopen(url, timeout=30) as r:
+            return r.read().decode()
+    except Exception as e:
+        raise RuntimeError("Failed to fetch RefSeq %s: %s" % (accession, e))
+
+def _parse_cigar(cigar_str):
+    for m in re.finditer(r"(\d+)([MIDNSHP=X])", cigar_str):
+        yield m.group(2), int(m.group(1))
+
+def _extract_region_cds(seq, ref_start_1, ref_end_1, align_ref_start_1, cigar_str):
+    out, ref_pos, query_pos = [], align_ref_start_1, 0
+    for op, length in _parse_cigar(cigar_str):
+        if op in "M=X":
+            for _ in range(length):
+                if ref_start_1 <= ref_pos <= ref_end_1:
+                    out.append(seq[query_pos])
+                ref_pos += 1
+                query_pos += 1
+        elif op == "I":
+            if ref_start_1 <= ref_pos - 1 <= ref_end_1:
+                for i in range(length):
+                    out.append(seq[query_pos + i])
+            query_pos += length
+        elif op in "D N":
+            ref_pos += length
+        elif op in "S H P":
+            query_pos += length
+    return "".join(out)
+
+def _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, out_path, min_cds_fraction=0.5):
+    ref_len = ref_end - ref_start + 1
+    min_len = int(ref_len * min_cds_fraction)
+    seqs = OrderedDict()
+    alignment_index = 0
+    with open(sam_path) as sam:
+        for line in sam:
+            if line.startswith("@"):
+                continue
+            parts = line.strip().split("\t")
+            if len(parts) < 11:
+                continue
+            qname, flag, rname, pos_s, _, cigar, _, _, _, seq = parts[:10]
+            if int(flag) & 0x900 or not seq or seq == "*":
+                continue
+            pos = int(pos_s)
+            if pos > ref_end:
+                continue
+            extracted = _extract_region_cds(seq, ref_start, ref_end, pos, cigar)
+            if len(extracted) < min_len:
+                continue
+            name = query_ids[alignment_index] if query_ids and alignment_index < len(query_ids) else qname
+            alignment_index += 1
+            seqs[name] = extracted
+    with open(out_path, "w") as f:
+        for name, s in seqs.items():
+            f.write(">%s\n" % name)
+            for i in range(0, len(s), 60):
+                f.write(s[i:i+60] + "\n")
+    return len(seqs)
+
+def _translate_cds_to_protein(rec):
+    from Bio.Seq import Seq
+    from Bio.SeqRecord import SeqRecord
+    s = rec.seq
+    if len(s) % 3 != 0:
+        s = s[: (len(s) // 3) * 3]
+    aa = str(s.translate(table=1, to_stop=False, cds=False))
+    return SeqRecord(Seq(aa), id=rec.id, description="")
+
+def _translate_cds_fasta(cds_path, protein_path):
+    records = list(SeqIO.parse(cds_path, "fasta"))
+    if not records:
+        open(protein_path, "w").close()
+        return
+    proteins = [_translate_cds_to_protein(rec) for rec in records]
+    with open(protein_path, "w") as f:
+        SeqIO.write(proteins, f, "fasta")
+
+def _backtranslate_pal2nal(protein_aln_path, cds_path, out_path):
+    """Back-translate protein alignment to codon alignment using PAL2NAL."""
+    from Bio import AlignIO, SeqIO
+    from Bio.SeqRecord import SeqRecord
+    cds_by_id = {}
+    for rec in SeqIO.parse(cds_path, "fasta"):
+        cds_by_id[rec.id] = rec.seq
+        cds_by_id[rec.id.replace("/", "_")] = rec.seq
+        cds_by_id[rec.id.replace("_", "/")] = rec.seq
+    aln = AlignIO.read(protein_aln_path, "fasta")
+    cds_ordered = []
+    for rec in aln:
+        seq = cds_by_id.get(rec.id) or cds_by_id.get(rec.id.replace("/", "_")) or cds_by_id.get(rec.id.replace("_", "/"))
+        if seq is None:
+            return False
+        cds_ordered.append(SeqRecord(seq, id=rec.id, description=""))
+    fd, tmp_cds = tempfile.mkstemp(suffix=".fasta")
+    os.close(fd)
+    try:
+        with open(tmp_cds, "w") as f:
+            SeqIO.write(cds_ordered, f, "fasta")
+        ret = subprocess.run(
+            ["pal2nal.pl", protein_aln_path, tmp_cds, "-output", "fasta"],
+            capture_output=True, text=True, timeout=600,
+        )
+        if ret.returncode != 0:
+            return False
+        with open(out_path, "w") as f:
+            f.write(ret.stdout)
+        return True
+    finally:
+        try:
+            os.unlink(tmp_cds)
+        except OSError:
+            pass
+
+def run_protein_cds_pipeline(outroot_abs, pairs, proteins, min_cds_fraction=0.5, threads=1):
+    """
+    Run CDS extraction, protein alignment, back-translate (inlined from ebolaS).
+    outroot_abs: absolute path to output root (e.g. Alignment dir).
+    pairs: list of (species_name, absolute_path_to_fasta).
+    """
+    run_name = "pan" if len(pairs) > 1 else pairs[0][0]
+    work_name = run_name + "_work"
+    outroot = os.path.join(outroot_abs, run_name)
+    work_dir = os.path.join(outroot_abs, work_name)
+    os.makedirs(outroot, exist_ok=True)
+    os.makedirs(work_dir, exist_ok=True)
+    for species, fpath in pairs:
+        species_dir = os.path.join(work_dir, species)
+        os.makedirs(species_dir, exist_ok=True)
+        ref_fa = os.path.join(species_dir, "ref.fa")
+        try:
+            ref_fasta = _fetch_refseq_cds(REFSEQ_IDS_CDS[species])
+            with open(ref_fa, "w") as f:
+                f.write(ref_fasta)
+        except RuntimeError as e:
+            with open(fpath) as fin, open(ref_fa, "w") as fout:
+                fout.write(fin.readline())
+                for line in fin:
+                    if line.startswith(">"):
+                        break
+                    fout.write(line)
+        query_ids = [rec.id for rec in SeqIO.parse(fpath, "fasta")]
+        sam_path = os.path.join(species_dir, "_aln.sam")
+        with open(sam_path, "w") as f:
+            subprocess.run(
+                ["minimap2", "-x", "asm5", "-a", "-t", str(threads), ref_fa, fpath],
+                stdout=f, stderr=subprocess.DEVNULL,
+            )
+        protein_regions = SPECIES_REGIONS_CDS[species]
+        for protein in proteins:
+            if protein not in protein_regions:
+                continue
+            ref_start, ref_end = protein_regions[protein]
+            protdir = os.path.join(species_dir, protein)
+            os.makedirs(protdir, exist_ok=True)
+            _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, os.path.join(protdir, "cds.fasta"), min_cds_fraction)
+        try:
+            os.unlink(sam_path)
+        except OSError:
+            pass
+    subdirs = sorted([os.path.join(work_dir, s) for s, _ in pairs])
+    for protein in proteins:
+        protdir = os.path.join(outroot, protein)
+        os.makedirs(protdir, exist_ok=True)
+        combined_cds = os.path.join(protdir, "cds.fasta")
+        with open(combined_cds, "w") as fout:
+            for subdir in subdirs:
+                cds_file = os.path.join(subdir, protein, "cds.fasta")
+                if not os.path.isfile(cds_file):
+                    continue
+                prefix = os.path.basename(subdir)
+                for rec in SeqIO.parse(cds_file, "fasta"):
+                    rec.id = "%s|%s" % (prefix, rec.id)
+                    rec.description = ""
+                    SeqIO.write(rec, fout, "fasta")
+        if os.path.getsize(combined_cds) == 0:
+            continue
+        _translate_cds_fasta(combined_cds, os.path.join(protdir, "protein.fasta"))
+        protein_aln = os.path.join(protdir, "protein_aln.fasta")
+        with open(protein_aln, "w") as f:
+            r = subprocess.run(
+                ["mafft", "--auto", "--thread", str(min(threads, 32)), os.path.join(protdir, "protein.fasta")],
+                stdout=f, stderr=subprocess.PIPE, text=True,
+            )
+            if r.returncode != 0:
+                print("MAFFT failed for %s: %s" % (protein, r.stderr))
+                continue
+        cds_aligned = os.path.join(protdir, "cds_aligned.fasta")
+        if not _backtranslate_pal2nal(protein_aln, combined_cds, cds_aligned):
+            print("PAL2NAL failed for %s" % protein)
+            continue
+        print("  Wrote %s" % cds_aligned)
+    try:
+        shutil.rmtree(work_dir, ignore_errors=True)
+    except Exception:
+        pass
+    return run_name
+
+def split_fasta_by_species(fasta_path, alignment_dir, consensus_paths=None):
+    """
+    Split a combined FASTA (headers accession/species/...) into per-species files.
+    consensus_paths: dict e.g. {'zaire': '/path/consensus_z.fasta'} to prepend per species.
+    Returns list of (ebolaS_species_name, path) for species that have sequences.
+    """
+    from Bio import SeqIO
+    species_to_records = {}
+    for rec in SeqIO.parse(fasta_path, "fasta"):
+        parts = rec.id.split("/")
+        if len(parts) < 2:
+            continue
+        proc_name = parts[1]
+        ebolaS_name = PROCESSING_TO_EBOLAS_SPECIES.get(proc_name)
+        if ebolaS_name is None:
+            continue
+        if ebolaS_name not in species_to_records:
+            species_to_records[ebolaS_name] = []
+        species_to_records[ebolaS_name].append(rec)
+    os.makedirs(alignment_dir, exist_ok=True)
+    out_pairs = []
+    for ebolaS_name, records in species_to_records.items():
+        out_path = os.path.join(alignment_dir, "input_%s.fasta" % ebolaS_name)
+        with open(out_path, "w") as f:
+            if consensus_paths and ebolaS_name in consensus_paths:
+                cons_path = consensus_paths.get(ebolaS_name)
+                if cons_path and os.path.exists(cons_path):
+                    with open(cons_path) as cf:
+                        f.write(cf.read())
+            SeqIO.write(records, f, "fasta")
+        out_pairs.append((ebolaS_name, os.path.abspath(out_path)))
+    return out_pairs
+
+
+def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_choices, base_name, args):
+    """Run protein (CDS) alignment pipeline (built-in), then optionally IQTree per protein."""
+    alignment_dir = "Alignment"
+    os.makedirs(alignment_dir, exist_ok=True)
+    combined = os.path.join(alignment_dir, "FASTA", "Ebola_Combined.fasta")
+    if not os.path.exists(combined):
+        os.makedirs(os.path.join(alignment_dir, "FASTA"), exist_ok=True)
+        with open(combined, "w") as outfile:
+            for fname in os.listdir(source_fasta_dir):
+                if fname.endswith(('.fasta', '.fa')) and fname != "Ebola_Combined.fasta":
+                    fpath = os.path.join(source_fasta_dir, fname)
+                    remove_duplicate_sequences(fpath)
+                    with open(fpath) as inf:
+                        outfile.write(inf.read())
+    consensus_paths = {}
+    for k, attr in [('zaire', 'consensus_zaire'), ('sudan', 'consensus_sudan'), ('reston', 'consensus_reston'),
+                    ('bundibugyo', 'consensus_bundibugyo'), ('tai_forest', 'consensus_tai')]:
+        path = getattr(args, attr, None)
+        if path:
+            consensus_paths[k] = os.path.abspath(path)
+    pairs = split_fasta_by_species(combined, os.path.join(alignment_dir, "by_species"), consensus_paths)
+    if not pairs:
+        print("Error: no sequences could be assigned to a species for protein alignment.")
+        return
+    _num_to_protein = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'VP30', '6': 'VP24'}
+    raw = [x.strip().upper() for x in proteins_str.split(",") if x.strip()] if proteins_str else ["L"]
+    proteins = [_num_to_protein.get(p, p) for p in raw]
+    check_protein_cds_dependencies()
+    # pairs are (species_name, path); run_protein_cds_pipeline expects (species, abs_path)
+    pairs_abs = [(s, os.path.abspath(p)) for s, p in pairs]
+    print("\nRunning protein (CDS) alignment pipeline...")
+    run_name = run_protein_cds_pipeline(os.path.abspath(alignment_dir), pairs_abs, proteins, min_cds_fraction=0.5, threads=1)
+    protein_out = os.path.join(alignment_dir, run_name)
+    if not os.path.isdir(protein_out):
+        print("Protein pipeline output dir not found:", protein_out)
+        return
+    if do_phylogeny:
+        check_dependencies()
+        phylogeny_base = "Phylogeny"
+        os.makedirs(phylogeny_base, exist_ok=True)
+        for protein in proteins:
+            cds_aligned = os.path.join(protein_out, protein, "cds_aligned.fasta")
+            if not os.path.isfile(cds_aligned):
+                continue
+            protdir = os.path.join(phylogeny_base, protein)
+            os.makedirs(protdir, exist_ok=True)
+            dest = os.path.join(protdir, "cds_aligned.fasta")
+            shutil.copy2(cds_aligned, dest)
+            cwd = os.getcwd()
+            os.chdir(protdir)
+            r = subprocess.run(["iqtree2", "-s", "cds_aligned.fasta", "-m", "MFP", "-bb", "10000", "-nt", "AUTO"],
+                               shell=False, stderr=subprocess.PIPE, text=True)
+            os.chdir(cwd)
+            if r.returncode != 0:
+                print("IQTree2 failed for %s: %s" % (protein, r.stderr))
+            else:
+                print("IQTree2 completed for %s in Phylogeny/%s/" % (protein, protein))
+    print("Protein pipeline completed. Output: Alignment/%s/ (per protein: cds_aligned.fasta)" % run_name)
+
 
 def run_alignment_pipeline(source_fasta_dir):
     """

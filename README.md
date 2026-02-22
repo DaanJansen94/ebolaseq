@@ -25,161 +25,135 @@ conda create -n ebolaseq -c conda-forge -c bioconda ebolaseq -y
 conda activate ebolaseq
 ```
 
-### Option 2: From Source Code
-1. Create and activate a new conda environment:
-   ```bash
-   conda create -n ebolaseq -c conda-forge -c bioconda python=3.9 mafft trimal iqtree=2.4.0 biopython minimap2 pal2nal
-   conda activate ebolaseq
-   ```
-
-2. Install ebolaseq:
-   ```bash
-   git clone https://github.com/DaanJansen94/ebolaseq.git
-   cd ebolaseq
-   pip install .
-   ```
-
-3. Re-installation (when updates are available):
-   ```bash
-   conda activate ebolaseq  # Make sure you're in the right environment
-   cd ebolaseq
-   git pull  # Get the latest updates from GitHub
-   pip uninstall ebolaseq
-   pip install .
-   ```
-   Note: Any time you modify the code or pull updates from GitHub, you need to reinstall the package using these commands for the changes to take effect.
+### Option 2: From source
+```bash
+conda create -n ebolaseq -c conda-forge -c bioconda python=3.9 mafft trimal iqtree=2.4.0 biopython minimap2 pal2nal
+conda activate ebolaseq
+git clone https://github.com/DaanJansen94/ebolaseq.git
+cd ebolaseq
+pip install .
+```
 
 ## Usage
 
-First, make sure your conda environment is activated:
 ```bash
 conda activate ebolaseq
+ebolaseq -o OUTPUT_DIR [options] 
 ```
 
 EbolaSeq can be run in two modes:
 1. Interactive Mode (default) - for interactive use
 2. Non-Interactive Mode - for HPC submissions or automated runs
 
-### Interactive Mode
+### Options (submission reference)
 
-Basic command structure:
+**Required**
+
+**`-o`, `--output-dir`** — Output directory for results
+
+**`--virus`** — Virus / species
+
+1 = Zaire ebolavirus  
+2 = Sudan ebolavirus  
+3 = Bundibugyo ebolavirus  
+4 = Tai Forest ebolavirus  
+5 = Reston ebolavirus  
+6 = Pan-Ebola: all 5 species  
+Comma-separated = multiple species (e.g. 1,2 for Zaire+Sudan; 1,2,3 for Zaire+Sudan+Bundibugyo)
+
+**`--genome`** — Genome completeness
+
+1 = Complete genomes only  
+2 = Partial genomes (requires `--completeness`)  
+3 = All genomes
+
+**`--completeness`** — Required when `--genome`=2  
+
+Value between 1–100 (percentage)
+
+**`--host`** — Host filter
+
+1 = Human only  
+2 = Non-human only  
+3 = All hosts
+
+**`--metadata`** — Metadata filter
+
+1 = Location only  
+2 = Date only  
+3 = Both location and date  
+4 = None
+
+**`--beast`** — Required when `--metadata` is 2 or 3
+
+1 = No  
+2 = Yes
+
+**Consensus FASTA per species** — Path to a FASTA file; used in alignment/phylogeny when provided
+
+`--c_z` = Zaire  
+`--c_s` = Sudan  
+`--c_r` = Reston  
+`--c_b` = Bundibugyo  
+`--c_t` = Tai Forest
+
+**`--alignment`, `-a`** — Alignment type
+
+1 = Whole-genome alignment  
+2 = Protein (CDS) alignment  
+3 = No alignment
+
+**`--proteins`, `-pr`** — For alignment 2 only; comma-separated
+
+1 = L  
+2 = NP  
+3 = VP35  
+4 = VP40  
+5 = VP30  
+6 = VP24  
+(Or use names: L, NP, VP35, VP40, VP30, VP24)
+
+**Optional (both modes)**
+
+**`--remove`** — Path to file listing sequence IDs/headers to exclude  
+**`--phylogeny`, `-p`** — Create phylogenetic tree from alignment
+
+### Examples
+
 ```bash
-ebolaseq --output-dir my_analysis [optional arguments]
+# Interactive (prompts for all choices)
+ebolaseq -o my_analysis
+
+# Non-interactive: Zaire, complete genomes, human, location+date, whole-genome alignment + phylogeny
+ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 3 --alignment 1 --phylogeny
+
+# Pan-Ebola, protein alignment (L and NP), phylogeny per protein, consensus for Zaire and Sudan
+ebolaseq -o my_analysis --virus 6 --genome 1 --host 3 --metadata 4 \
+  --c_z consensus_zaire.fasta --c_s consensus_sudan.fasta \
+  --alignment 2 -pr L,NP --phylogeny
+
+# Exclude specific sequences
+ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove exclude.txt
 ```
 
-Example commands:
-```bash
-# Basic usage
-ebolaseq --output-dir my_analysis
+## Output 
 
-# With phylogenetic analysis
-ebolaseq --output-dir my_analysis --phylogeny
+- **FASTA/** — Filtered sequences and `location.txt`.
+- **Alignment/** — For whole-genome: `FASTA/`, `MAFFT/`, `Trimmed/`. For protein: `pan/` (or species name) with e.g. `L/`, `NP/` each containing `cds_aligned.fasta`.
+- **Phylogeny/** — IQTree2 results (whole-genome: one tree; protein: one folder per protein).
+- **summary_*.txt** — Run summary and location counts.
 
-# Complete analysis with sequence removal and consensus
-ebolaseq --output-dir my_analysis \
-         --consensus-file path/to/consensus.fasta \
-         --remove remove.txt \
-         --phylogeny
+## Notes
 
-# Complete analysis with sequence removal and consensus and phylogenetic analysis 
-ebolaseq -o my_analysis -c path/to/consensus.fasta -p
-```
-
-The tool will interactively prompt you for choices about:
-- Virus species (1–5, option 6 for Pan/all 5 species, or e.g. `1,2` for multiple)
-- Genome completeness
-- Host type
-- Metadata options
-
-### Non-Interactive Mode (HPC)
-
-For HPC submissions or automated runs, specify all parameters via command line:
-
-```bash
-ebolaseq --output-dir my_analysis \
-         --virus 1 \
-         --genome 2 \
-         --completeness 80 \
-         --host 1 \
-         --metadata 3 \
-         --beast 2 \
-         --phylogeny \
-         --consensus-file path/to/consensus.fasta \
-         --remove remove.txt
-```
-
-Required parameters for non-interactive mode:
-- `--virus`: Virus type
-  - 1 = Zaire ebolavirus
-  - 2 = Sudan ebolavirus
-  - 3 = Bundibugyo ebolavirus
-  - 4 = Tai Forest ebolavirus
-  - 5 = Reston ebolavirus
-  - 6 = Pan-Ebola: all 5 species
-  - Comma-separated = Multiple species (e.g. `1,2` for Zaire+Sudan, `1,2,3` for Zaire+Sudan+Bundibugyo)
-
-- `--genome`: Genome completeness
-  - 1 = Complete genomes only
-  - 2 = Partial genomes (requires --completeness)
-  - 3 = All genomes
-
-- `--completeness`: Required when --genome=2
-  - Value between 1-100 (percentage)
-
-- `--host`: Host filter
-  - 1 = Human only
-  - 2 = Non-human only
-  - 3 = All hosts
-
-- `--metadata`: Metadata filter
-  - 1 = Location only
-  - 2 = Date only
-  - 3 = Both location and date
-  - 4 = None
-
-- `--beast`: Required when --metadata is 2 or 3
-  - 1 = No
-  - 2 = Yes
-
-Optional arguments (both modes):
-- `--output-dir`: Output directory (required)
-- `--consensus-file`: Path to consensus FASTA file
-- `--remove`: Path to sequence removal list
-- `--phylogeny`: Create phylogenetic tree
-
-### Input File Formats
-
-1. Consensus file (optional):
-   - FASTA format
-   - Example:
-   ```
-   >Consensus_sequence_name
-   ATGCATGCATGC...
-   ```
-
-2. Remove file (optional):
-   - Text file with one GenBank accession number per line
-   - Example:
-   ```
-   KM034562.1
-   KM034563.1
-   MK114118.1
-   ```
-
-## Important Notes
-
-It is strongly recommended to always use a `remove.txt` file with the `--remove` option when running EbolaSeq. This file should contain sequence IDs that should be excluded from the analysis, particularly sequences obtained from cell culture passages, laboratory-adapted strains, artificially modified sequences, sequences from experimental infections, and other non-natural viral sequences. These sequences can bias analyses as they may not represent natural viral diversity.
-
-When creating large phylogenetic trees for Zaire ebolavirus, it is recommended to root the tree using sequences from the 1976 Yambuku outbreak, as this represents the first documented outbreak of the virus.
+- Use `--remove` with a list of IDs to exclude cell-culture, lab-adapted, or other non-natural sequences.
+- For large Zaire trees, consider rooting with 1976 Yambuku outbreak sequences.
 
 ## Dependencies
 
-- Python ≥ 3.6
-- BioPython ≥ 1.79
-- NumPy ≥ 1.21.0
-- MAFFT
-- TrimAl
-- IQTree2
+- Python ≥ 3.9
+- Biopython ≥ 1.81
+- MAFFT, TrimAl, IQTree2  
+- For protein alignment: minimap2, pal2nal
 
 ## Citation
 
