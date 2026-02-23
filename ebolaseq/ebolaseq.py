@@ -183,15 +183,24 @@ REFSEQ_IDS_CDS = {
     "bundibugyo": "NC_014373.1", "tai_forest": "NC_014372.1",
 }
 SPECIES_REGIONS_CDS = {
-    "zaire": {"L": (11581, 18219), "NP": (470, 2689), "VP35": (3129, 4151), "VP40": (4479, 5459), "VP30": (8509, 9375), "VP24": (10345, 11100)},
-    "sudan": {"L": (11535, 18167), "NP": (458, 2674), "VP35": (3138, 4127), "VP40": (4454, 5434), "VP30": (8441, 9307), "VP24": (10299, 11054)},
-    "reston": {"L": (11550, 18188), "NP": (464, 2683), "VP35": (3155, 4144), "VP40": (4485, 5480), "VP30": (8490, 9353), "VP24": (10303, 11058)},
-    "bundibugyo": {"L": (11567, 18199), "NP": (458, 2677), "VP35": (3108, 4133), "VP40": (4461, 5441), "VP30": (8496, 9365), "VP24": (10335, 11090)},
-    "tai_forest": {"L": (11566, 18198), "NP": (464, 2683), "VP35": (3114, 4139), "VP40": (4467, 5447), "VP30": (8503, 9372), "VP24": (10339, 11094)},
+    "zaire": {"L": (11581, 18219), "NP": (470, 2689), "VP35": (3129, 4151), "VP40": (4479, 5459), "GP": (6039, 8068), "VP30": (8509, 9375), "VP24": (10345, 11100)},
+    "sudan": {"L": (11535, 18167), "NP": (458, 2674), "VP35": (3138, 4127), "VP40": (4454, 5434), "GP": (5998, 8027), "VP30": (8441, 9307), "VP24": (10299, 11054)},
+    "reston": {"L": (11550, 18188), "NP": (464, 2683), "VP35": (3155, 4144), "VP40": (4485, 5480), "GP": (6042, 8074), "VP30": (8490, 9353), "VP24": (10303, 11058)},
+    "bundibugyo": {"L": (11567, 18199), "NP": (458, 2677), "VP35": (3108, 4133), "VP40": (4461, 5441), "GP": (6021, 8050), "VP30": (8496, 9365), "VP24": (10335, 11090)},
+    "tai_forest": {"L": (11566, 18198), "NP": (464, 2683), "VP35": (3114, 4139), "VP40": (4467, 5447), "GP": (6027, 8056), "VP30": (8503, 9372), "VP24": (10339, 11094)},
 }
 PROTEIN_DESCRIPTIONS_CDS = {
     "L": "RNA-dependent RNA polymerase", "NP": "nucleoprotein", "VP35": "polymerase cofactor",
-    "VP40": "matrix protein", "VP30": "minor nucleoprotein", "VP24": "membrane-associated protein",
+    "VP40": "matrix protein", "GP": "spike glycoprotein", "VP30": "minor nucleoprotein", "VP24": "membrane-associated protein",
+}
+# GP has RNA editing: spike glycoprotein CDS has an extra A at the editing site (join in GenBank).
+# 0-based offset in extracted GP CDS (ref_start..ref_end) where to insert 'A' so translation matches GP.
+GP_EDIT_OFFSET = {
+    "zaire": 6923 - 6039,      # 884
+    "sudan": 6882 - 5998,      # 884
+    "reston": 6930 - 6042,     # 888
+    "bundibugyo": 6905 - 6021, # 884
+    "tai_forest": 6911 - 6027, # 884
 }
 
 # Map GenBank organism strings to internal processing names (with underscores)
@@ -411,7 +420,7 @@ def cli_main():
     opt_align.add_argument('--alignment', '-a', type=str, choices=['1', '2', '3'], default=None, metavar='{1,2,3}',
                            help='1 whole-genome alignment, 2 protein (CDS) alignment, 3 no alignment')
     opt_align.add_argument('--proteins', '-pr', type=str, default=None, metavar='LIST',
-                           help='For alignment=2: comma-separated L,NP,VP35,VP40,VP30,VP24')
+                           help='For alignment=2: comma-separated L,NP,VP35,VP40,GP,VP30,VP24')
     opt_align.add_argument('--phylogeny', '-p', action='store_true', help='Build phylogeny from alignment')
     opt_align.add_argument('-m', '--min-cds-fraction', type=float, default=0.5, metavar='F',
                            help='Min fraction of reference CDS length to keep a sequence (default: 0.5). E.g. 0.2 keeps more partial, 0.8 is stricter.')
@@ -590,17 +599,18 @@ def main(args, non_interactive=False):
             print("2. NP (nucleoprotein)")
             print("3. VP35 (polymerase cofactor)")
             print("4. VP40 (matrix protein)")
-            print("5. VP30 (minor nucleoprotein)")
-            print("6. VP24 (membrane-associated protein)")
-            protein_choice = input("\nSelect protein(s) (1-6 or e.g. 1,2): ").strip()
-            protein_map = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'VP30', '6': 'VP24'}
+            print("5. GP (spike glycoprotein)")
+            print("6. VP30 (minor nucleoprotein)")
+            print("7. VP24 (membrane-associated protein)")
+            protein_choice = input("\nSelect protein(s) (1-7 or e.g. 1,2): ").strip()
+            protein_map = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'VP30', '7': 'VP24'}
             parts = [p.strip() for p in protein_choice.replace(',', ' ').split() if p.strip()]
             prots = []
             for p in parts:
                 if p in protein_map:
                     prots.append(protein_map[p])
                 else:
-                    print("Invalid protein option; use 1-6 or e.g. 1,2")
+                    print("Invalid protein option; use 1-7 or e.g. 1,2")
                     break
             else:
                 if prots:
@@ -1270,6 +1280,26 @@ def _translate_cds_to_protein(rec):
     aa = str(s.translate(table=1, to_stop=False, cds=False))
     return SeqRecord(Seq(aa), id=rec.id, description="")
 
+def _apply_gp_editing(cds_path, species):
+    """Insert RNA-editing adenosine into GP CDS so translation matches spike glycoprotein (PAL2NAL can back-translate).
+    Applied per species; works the same for one virus or many, and for GP-only or multi-protein runs."""
+    offset = GP_EDIT_OFFSET.get(species)
+    if offset is None:
+        return
+    records = list(SeqIO.parse(cds_path, "fasta"))
+    if not records:
+        return
+    from Bio.Seq import Seq
+    from Bio.SeqRecord import SeqRecord
+    edited = []
+    for rec in records:
+        s = str(rec.seq)
+        if len(s) > offset:
+            s = s[:offset] + "A" + s[offset:]
+        edited.append(SeqRecord(Seq(s), id=rec.id, description=""))
+    with open(cds_path, "w") as f:
+        SeqIO.write(edited, f, "fasta")
+
 def _translate_cds_fasta(cds_path, protein_path):
     records = list(SeqIO.parse(cds_path, "fasta"))
     if not records:
@@ -1279,8 +1309,22 @@ def _translate_cds_fasta(cds_path, protein_path):
     with open(protein_path, "w") as f:
         SeqIO.write(proteins, f, "fasta")
 
+def _parse_pal2nal_failed_id(err):
+    """Parse PAL2NAL stderr/stdout for 'inconsistency' error; return sequence ID from first '>ID' or None."""
+    if not err or "inconsistency" not in err.lower():
+        return None
+    for line in err.splitlines():
+        s = line.strip()
+        if s.startswith(">"):
+            return s[1:].strip()
+    # Fallback: any ">ID" in message (e.g. wrapped or different formatting)
+    m = re.search(r">\s*([^\s\n\r>]+)", err)
+    if m:
+        return m.group(1).strip()
+    return None
+
 def _backtranslate_pal2nal(protein_aln_path, cds_path, out_path):
-    """Back-translate protein alignment to codon alignment using PAL2NAL."""
+    """Back-translate protein alignment to codon alignment using PAL2NAL. Returns (ok, error_msg, failed_id)."""
     from Bio import AlignIO, SeqIO
     from Bio.SeqRecord import SeqRecord
     cds_by_id = {}
@@ -1293,7 +1337,7 @@ def _backtranslate_pal2nal(protein_aln_path, cds_path, out_path):
     for rec in aln:
         seq = cds_by_id.get(rec.id) or cds_by_id.get(rec.id.replace("/", "_")) or cds_by_id.get(rec.id.replace("_", "/"))
         if seq is None:
-            return False
+            return False, "CDS missing for id: %s" % rec.id, None
         cds_ordered.append(SeqRecord(seq, id=rec.id, description=""))
     fd, tmp_cds = tempfile.mkstemp(suffix=".fasta")
     os.close(fd)
@@ -1304,20 +1348,29 @@ def _backtranslate_pal2nal(protein_aln_path, cds_path, out_path):
             ["pal2nal.pl", protein_aln_path, tmp_cds, "-output", "fasta"],
             capture_output=True, text=True, timeout=600,
         )
+        err_text = ((ret.stderr or "").strip() + "\n" + (ret.stdout or "").strip()).strip()
         if ret.returncode != 0:
-            return False
+            err = err_text or "exit code %s" % ret.returncode
+            failed_id = _parse_pal2nal_failed_id(err)
+            return False, err, failed_id
         with open(out_path, "w") as f:
             f.write(ret.stdout)
-        return True
+        n_out = len(list(SeqIO.parse(out_path, "fasta")))
+        if n_out == 0:
+            err = err_text or "PAL2NAL produced 0 sequences (protein/CDS mismatch?)"
+            failed_id = _parse_pal2nal_failed_id(err)
+            return False, err, failed_id
+        return True, None, None
     finally:
         try:
             os.unlink(tmp_cds)
         except OSError:
             pass
 
-def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_cds_fraction=0.5, threads=1):
+def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_cds_fraction=0.5, threads=1, consensus_ids=None):
     """
     Run CDS extraction, protein alignment, back-translate (inlined from ebolaS).
+    consensus_ids: set of sequence IDs that came from user-specified consensus files (--c_z etc.); reserved for future use.
     Writes only to outroot_abs/MAFFT/<protein>/ and outroot_abs/Trimmed/<protein>/.
     outroot_abs: absolute path to output root (e.g. Alignment dir).
     pairs: list of (species_name, absolute_path_to_fasta).
@@ -1359,6 +1412,8 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
             os.makedirs(protdir, exist_ok=True)
             n_passed, n_input, dropped_ids, ref_len, dropped_best_bp = _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, os.path.join(protdir, "cds.fasta"), min_cds_fraction)
             extraction_counts[(species, protein)] = (n_passed, n_input, dropped_ids, ref_len, dropped_best_bp)
+            if protein == "GP":
+                _apply_gp_editing(os.path.join(protdir, "cds.fasta"), species)
         try:
             os.unlink(sam_path)
         except OSError:
@@ -1377,13 +1432,16 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
         os.makedirs(protdir, exist_ok=True)
         combined_cds = os.path.join(protdir, "cds.fasta")
         with open(combined_cds, "w") as fout:
+            # With one virus/species: no prefix so IDs stay unique (some tools truncate at "|", giving 0 in alignment)
+            add_prefix = len(subdirs) > 1
             for subdir in subdirs:
                 cds_file = os.path.join(subdir, protein, "cds.fasta")
                 if not os.path.isfile(cds_file):
                     continue
-                prefix = os.path.basename(subdir)
+                prefix = os.path.basename(subdir) if add_prefix else None
                 for rec in SeqIO.parse(cds_file, "fasta"):
-                    rec.id = "%s|%s" % (prefix, rec.id)
+                    if prefix:
+                        rec.id = "%s|%s" % (prefix, rec.id)
                     rec.description = ""
                     SeqIO.write(rec, fout, "fasta")
         if os.path.getsize(combined_cds) == 0:
@@ -1399,8 +1457,68 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
                 print("MAFFT failed for %s: %s" % (protein, r.stderr))
                 continue
         cds_aligned = os.path.join(protdir, "cds_aligned.fasta")
-        if not _backtranslate_pal2nal(protein_aln, combined_cds, cds_aligned):
-            print("PAL2NAL failed for %s" % protein)
+        exclude_for_pal2nal = set()  # GP: drop sequences that cause pep/nuc inconsistency
+        pal2nal_ok = False
+        for _ in range(50):
+            cds_input = combined_cds
+            aln_input = protein_aln
+            if exclude_for_pal2nal:
+                from Bio import AlignIO
+                from Bio.Align import MultipleSeqAlignment
+                def _excluded(eid):
+                    o = eid.split("|", 1)[1] if "|" in eid else eid
+                    for bad in exclude_for_pal2nal:
+                        if o == bad or o.startswith(bad + "/") or bad.startswith(o + "/"):
+                            return True
+                    return False
+                aln = AlignIO.read(protein_aln, "fasta")
+                aln_filtered = [r for r in aln if not _excluded(r.id)]
+                if not aln_filtered:
+                    break
+                # CDS must be in same order as alignment for PAL2NAL (same as VP35 flow)
+                cds_by_id = {rec.id: rec for rec in SeqIO.parse(combined_cds, "fasta")}
+                def _find_cds(aid):
+                    if aid in cds_by_id:
+                        return cds_by_id[aid]
+                    for cid, rec in cds_by_id.items():
+                        if cid == aid or cid.startswith(aid + "/") or aid.startswith(cid + "/"):
+                            return rec
+                    return None
+                cds_records = [_find_cds(r.id) for r in aln_filtered]
+                cds_records = [x for x in cds_records if x is not None]
+                if len(cds_records) != len(aln_filtered):
+                    print("PAL2NAL retry: ID mismatch between alignment and CDS (e.g. truncated IDs), skipping retry.")
+                    break
+                fd_a = tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False)
+                fd_c = tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False)
+                with open(fd_a.name, "w") as f:
+                    AlignIO.write(MultipleSeqAlignment(aln_filtered), f, "fasta")
+                with open(fd_c.name, "w") as f:
+                    SeqIO.write(cds_records, f, "fasta")
+                fd_a.close()
+                fd_c.close()
+                aln_input, cds_input = fd_a.name, fd_c.name
+            ok, err, failed_id = _backtranslate_pal2nal(aln_input, cds_input, cds_aligned)
+            if exclude_for_pal2nal and aln_input != protein_aln:
+                try:
+                    os.unlink(aln_input)
+                    os.unlink(cds_input)
+                except OSError:
+                    pass
+            if ok:
+                pal2nal_ok = True
+                if exclude_for_pal2nal:
+                    print("  %s: excluded %d sequence(s) with pep/nuc inconsistency, alignment has %d." % (protein, len(exclude_for_pal2nal), len(list(SeqIO.parse(cds_aligned, "fasta")))))
+                break
+            if failed_id and protein == "GP":
+                exclude_for_pal2nal.add(failed_id)
+                print("  GP: excluding sequence with pep/nuc inconsistency, retrying without: %s" % (failed_id[:80] + ("..." if len(failed_id) > 80 else "")))
+                continue
+            print("PAL2NAL failed for %s: %s" % (protein, (err or "unknown")[:500]))
+            break
+        else:
+            print("PAL2NAL failed for %s: too many inconsistent sequences" % protein)
+        if not pal2nal_ok:
             continue
         n_in_alignment = len(list(SeqIO.parse(cds_aligned, "fasta")))
         _def = (0, 0, [], 0, {})
@@ -1518,6 +1636,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
     }
     seen_ids = set()
     combined_records = []
+    consensus_ids = set()  # IDs from user-specified consensus files (--c_z, --c_s, etc.) so GP can exclude them
     n_read = 0
     n_from_download = 0
     n_from_consensus = 0
@@ -1541,6 +1660,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
                         base_id = (rec.id.split()[0] if rec.id else "consensus").replace("/", "_")
                         rec.id = "%s_%d/%s/consensus" % (base_id, consensus_seq_index, consensus_species)
                         consensus_seq_index += 1
+                consensus_ids.add(rec.id)  # track: from file user specified (--c_z etc.)
             else:
                 n_from_download += 1
             if rec.id in seen_ids:
@@ -1576,7 +1696,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
                     run_log.append("  split_skipped: %s" % sid)
         elif n_assigned != n_combined:
             print("Split by species: %d in combined → %d assigned to species." % (n_combined, n_assigned))
-        _num_to_protein = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'VP30', '6': 'VP24'}
+        _num_to_protein = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'VP30', '7': 'VP24'}
         raw = [x.strip().upper() for x in proteins_str.split(",") if x.strip()] if proteins_str else ["L"]
         proteins = [_num_to_protein.get(p, p) for p in raw]
         check_protein_cds_dependencies()
@@ -1586,7 +1706,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
         nthreads = getattr(args, 'threads', 1)
         if nthreads <= 0:
             nthreads = os.cpu_count() or 1
-        protein_dropped = run_protein_cds_pipeline(os.path.abspath(alignment_dir), pairs_abs, proteins, base_name=base_name, min_cds_fraction=min_cds, threads=nthreads)
+        protein_dropped = run_protein_cds_pipeline(os.path.abspath(alignment_dir), pairs_abs, proteins, base_name=base_name, min_cds_fraction=min_cds, threads=nthreads, consensus_ids=consensus_ids)
         if run_log is not None and protein_dropped:
             any_dropped = any(ids for ids in protein_dropped.values())
             if any_dropped:

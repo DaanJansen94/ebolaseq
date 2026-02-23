@@ -105,13 +105,14 @@ EbolaSeq can be run in two modes:
 
 **`--proteins`, `-pr`** — For alignment 2 only; comma-separated
 
-- 1 = L
-- 2 = NP
-- 3 = VP35
-- 4 = VP40
-- 5 = VP30
-- 6 = VP24
-- Or use names: L, NP, VP35, VP40, VP30, VP24
+- 1 = L (RNA-dependent RNA polymerase)
+- 2 = NP (nucleoprotein)
+- 3 = VP35 (polymerase cofactor)
+- 4 = VP40 (matrix protein)
+- 5 = GP (spike glycoprotein)
+- 6 = VP30 (minor nucleoprotein)
+- 7 = VP24 (membrane-associated protein)
+- Or use names: L, NP, VP35, VP40, GP, VP30, VP24
 
 **`--phylogeny`, `-p`** — Create phylogenetic tree from alignment
 
