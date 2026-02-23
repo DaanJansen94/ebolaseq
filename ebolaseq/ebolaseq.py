@@ -1221,8 +1221,9 @@ def _extract_region_cds(seq, ref_start_1, ref_end_1, align_ref_start_1, cigar_st
 def _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, out_path, min_cds_fraction=0.5):
     ref_len = ref_end - ref_start + 1
     min_len = int(ref_len * min_cds_fraction)
-    seqs = OrderedDict()
-    alignment_index = 0
+    query_set = set(query_ids) if query_ids else None
+    seqs = OrderedDict()  # qname -> extracted CDS (keep best coverage per query)
+    best_extracted_len = {}  # qname -> best extracted length (even if below threshold) for diagnostics
     with open(sam_path) as sam:
         for line in sam:
             if line.startswith("@"):
@@ -1236,21 +1237,29 @@ def _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, out_path, min
             pos = int(pos_s)
             if pos > ref_end:
                 continue
-            extracted = _extract_region_cds(seq, ref_start, ref_end, pos, cigar)
-            if len(extracted) < min_len:
+            if query_set is not None and qname not in query_set:
                 continue
-            name = query_ids[alignment_index] if query_ids and alignment_index < len(query_ids) else qname
-            alignment_index += 1
-            seqs[name] = extracted
+            extracted = _extract_region_cds(seq, ref_start, ref_end, pos, cigar)
+            n_ext = len(extracted)
+            best_extracted_len[qname] = max(best_extracted_len.get(qname, 0), n_ext)
+            if n_ext < min_len:
+                continue
+            # Keep best coverage per query (longest extracted passing segment)
+            if qname not in seqs or n_ext > len(seqs[qname]):
+                seqs[qname] = extracted
+    # Write in query_ids order for stable downstream order
     with open(out_path, "w") as f:
-        for name, s in seqs.items():
-            f.write(">%s\n" % name)
-            for i in range(0, len(s), 60):
-                f.write(s[i:i+60] + "\n")
+        for qid in (query_ids or []):
+            if qid in seqs:
+                s = seqs[qid]
+                f.write(">%s\n" % qid)
+                for i in range(0, len(s), 60):
+                    f.write(s[i:i+60] + "\n")
     n_input = len(query_ids) if query_ids else 0
     kept = set(seqs.keys())
     dropped_ids = [q for q in (query_ids or []) if q not in kept]
-    return (len(seqs), n_input, dropped_ids)
+    dropped_best_bp = {q: best_extracted_len.get(q, 0) for q in dropped_ids}
+    return (len(seqs), n_input, dropped_ids, ref_len, dropped_best_bp)
 
 def _translate_cds_to_protein(rec):
     from Bio.Seq import Seq
@@ -1336,8 +1345,9 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
         query_ids = [rec.id for rec in SeqIO.parse(fpath, "fasta")]
         sam_path = os.path.join(species_dir, "_aln.sam")
         with open(sam_path, "w") as f:
+            # No -x preset: let minimap2 auto-detect; min_cds_fraction already enforces coverage
             subprocess.run(
-                ["minimap2", "-x", "asm5", "-a", "-t", str(threads), ref_fa, fpath],
+                ["minimap2", "-a", "-t", str(threads), ref_fa, fpath],
                 stdout=f, stderr=subprocess.DEVNULL,
             )
         protein_regions = SPECIES_REGIONS_CDS[species]
@@ -1347,14 +1357,20 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
             ref_start, ref_end = protein_regions[protein]
             protdir = os.path.join(species_dir, protein)
             os.makedirs(protdir, exist_ok=True)
-            n_passed, n_input, dropped_ids = _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, os.path.join(protdir, "cds.fasta"), min_cds_fraction)
-            extraction_counts[(species, protein)] = (n_passed, n_input, dropped_ids)
+            n_passed, n_input, dropped_ids, ref_len, dropped_best_bp = _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, os.path.join(protdir, "cds.fasta"), min_cds_fraction)
+            extraction_counts[(species, protein)] = (n_passed, n_input, dropped_ids, ref_len, dropped_best_bp)
         try:
             os.unlink(sam_path)
         except OSError:
             pass
     subdirs = sorted([os.path.join(work_dir, s) for s, _ in pairs])
     protein_dropped_ids = {}
+    # Load combined FASTA to report sequence length for dropped IDs (explains partial genomes)
+    combined_fasta = os.path.join(outroot_abs, "FASTA", "Ebola_Combined.fasta")
+    id_to_len = {}
+    if os.path.isfile(combined_fasta):
+        for rec in SeqIO.parse(combined_fasta, "fasta"):
+            id_to_len[rec.id] = len(rec.seq)
     print("  (Per protein: only CDS coverage step drops sequences; each protein can keep a different number.)")
     for protein in proteins:
         protdir = os.path.join(work_dir, protein)
@@ -1387,16 +1403,31 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
             print("PAL2NAL failed for %s" % protein)
             continue
         n_in_alignment = len(list(SeqIO.parse(cds_aligned, "fasta")))
-        total_input = sum(extraction_counts.get((s, protein), (0, 0, []))[1] for s, _ in pairs)
-        total_passed = sum(extraction_counts.get((s, protein), (0, 0, []))[0] for s, _ in pairs)
+        _def = (0, 0, [], 0, {})
+        total_input = sum(extraction_counts.get((s, protein), _def)[1] for s, _ in pairs)
+        total_passed = sum(extraction_counts.get((s, protein), _def)[0] for s, _ in pairs)
         dropped = total_input - total_passed
         dropped_ids_this_protein = []
+        dropped_coverage = []  # (did, best_bp, ref_len) for diagnostics
         for s, _ in pairs:
-            dropped_ids_this_protein.extend(extraction_counts.get((s, protein), (0, 0, []))[2])
+            t = extraction_counts.get((s, protein), _def)
+            dropped_ids_this_protein.extend(t[2])
+            ref_len = t[3]
+            best_bp = t[4]
+            for did in t[2]:
+                dropped_coverage.append((did, best_bp.get(did, 0), ref_len))
         protein_dropped_ids[protein] = dropped_ids_this_protein
-        per_species = " ".join("%s %d→%d" % (s, extraction_counts.get((s, protein), (0, 0, []))[1], extraction_counts.get((s, protein), (0, 0, []))[0]) for s, _ in pairs)
+        per_species = " ".join("%s %d→%d" % (s, extraction_counts.get((s, protein), _def)[1], extraction_counts.get((s, protein), _def)[0]) for s, _ in pairs)
         print("  %s: %d assigned to species → %d in alignment (%d dropped: CDS coverage < %.0f%% of reference or no alignment). Per species: %s" % (
             protein, total_input, n_in_alignment, dropped, min_cds_fraction * 100, per_species))
+        if dropped_ids_this_protein:
+            print("  Dropped IDs for %s (with best alignment coverage in this region):" % protein)
+            for did, best_bp, ref_len in dropped_coverage:
+                pct = (100.0 * best_bp / ref_len) if ref_len else 0
+                L = id_to_len.get(did)
+                len_str = "  [genome %s nt]" % (L if L is not None else "?")
+                print("    %s  → %d bp (%.1f%% of ref)%s" % (did, best_bp, pct, len_str))
+            print("  (0%% = alignment does not cover this region. L is 3'; NP/VP35 are 5' — if minimap2 aligned only the 3' end, L is retained and NP/VP35 are dropped.)")
         print("  Wrote %s" % cds_aligned)
         # Mirror into Alignment/MAFFT/<protein>/ (originals + aligned) and Alignment/Trimmed/<protein>/
         mafft_prot_dir = os.path.join(outroot_abs, "MAFFT", protein)
@@ -1557,13 +1588,15 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
             nthreads = os.cpu_count() or 1
         protein_dropped = run_protein_cds_pipeline(os.path.abspath(alignment_dir), pairs_abs, proteins, base_name=base_name, min_cds_fraction=min_cds, threads=nthreads)
         if run_log is not None and protein_dropped:
-            run_log.append("Dropped (protein coverage not met):")
-            for protein, ids in protein_dropped.items():
-                if not ids:
-                    continue
-                run_log.append("  %s: %d dropped" % (protein, len(ids)))
-                for sid in ids:
-                    run_log.append("    %s" % sid)
+            any_dropped = any(ids for ids in protein_dropped.values())
+            if any_dropped:
+                run_log.append("Dropped (protein coverage not met):")
+                for protein, ids in protein_dropped.items():
+                    if not ids:
+                        continue
+                    run_log.append("  %s: %d dropped" % (protein, len(ids)))
+                    for sid in ids:
+                        run_log.append("    %s" % sid)
     if do_phylogeny:
         check_dependencies()
         phylogeny_base = "Phylogeny"
