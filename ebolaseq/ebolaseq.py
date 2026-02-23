@@ -1735,7 +1735,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
             shutil.copy2(src, dest)
             cwd = os.getcwd()
             os.chdir(protdir)
-            iqtree_nt = "AUTO" if (threads <= 0) else str(threads)
+            iqtree_nt = "AUTO" if (nthreads <= 0) else str(nthreads)
             r = subprocess.run(["iqtree2", "-s", "cds_aligned.fasta", "-m", "MFP", "-bb", "10000", "-nt", iqtree_nt],
                                shell=False, stderr=subprocess.PIPE, text=True)
             os.chdir(cwd)
