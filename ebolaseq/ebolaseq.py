@@ -1468,7 +1468,8 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
                 def _excluded(eid):
                     o = eid.split("|", 1)[1] if "|" in eid else eid
                     for bad in exclude_for_pal2nal:
-                        if o == bad or o.startswith(bad + "/") or bad.startswith(o + "/"):
+                        b = bad.split("|", 1)[1] if "|" in bad else bad
+                        if o == b or o.startswith(b + "/") or b.startswith(o + "/"):
                             return True
                     return False
                 aln = AlignIO.read(protein_aln, "fasta")
