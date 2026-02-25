@@ -25,13 +25,12 @@ requirements:
     - setuptools
   run:
     - python >=3.9
-    - conda-forge::mafft
-    - bioconda::trimal
-    - bioconda::iqtree =2.4.0
-    - conda-forge::numpy >=1.20.0
-    - conda-forge::biopython >=1.80
-    - bioconda::minimap2
-    - bioconda::pal2nal
+    - mafft
+    - trimal
+    - iqtree =2.4.0
+    - numpy >=1.20.0
+    - minimap2
+    - pal2nal
     
 test:
   imports:
