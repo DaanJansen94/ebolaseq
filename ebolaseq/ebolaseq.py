@@ -443,13 +443,23 @@ def cli_main():
     if args.metadata in ('2', '3') and args.beast is None:
         args.beast = '1'
 
-    # Override output directory: remove if exists and create fresh (no leftover from previous run)
-    if os.path.exists(args.output_dir):
-        shutil.rmtree(args.output_dir)
-    os.makedirs(args.output_dir)
-
-    # Change to output directory
     original_dir = os.getcwd()
+
+    # Override output directory: remove if exists and create fresh
+    if os.path.exists(args.output_dir):
+        if os.path.realpath(args.output_dir) == os.path.realpath(original_dir):
+            for entry in os.listdir(args.output_dir):
+                entry_path = os.path.join(args.output_dir, entry)
+                if os.path.isdir(entry_path):
+                    shutil.rmtree(entry_path)
+                else:
+                    os.remove(entry_path)
+        else:
+            shutil.rmtree(args.output_dir)
+            os.makedirs(args.output_dir)
+    else:
+        os.makedirs(args.output_dir)
+
     os.chdir(args.output_dir)
     
     try:
