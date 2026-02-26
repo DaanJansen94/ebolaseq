@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ebolaseq"
-version = "0.1.7"
+version = "0.1.8"
 description = "A tool for filtering and analyzing Ebola virus sequences"
 readme = "README.md"
 requires-python = ">=3.9"

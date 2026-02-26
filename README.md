@@ -164,7 +164,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 If you use EbolaSeq in your research, please cite:
 
 ```
-Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.1.7). Zenodo. https://doi.org/10.5281/zenodo.14851686
+Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.1.8). Zenodo. https://doi.org/10.5281/zenodo.14851686
 ```
 
 ## License
