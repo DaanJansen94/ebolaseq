@@ -6,8 +6,7 @@ package:
   version: {{ version }}
 
 source:
-  url: https://github.com/DaanJansen94/ebolaseq/archive/v{{ version }}.tar.gz
-  sha256: eeef92e86638ef23325bedaea9450a15744202bf1b4479d122a5b145fb0882bf
+  path: ..
 
 build:
   number: 0
