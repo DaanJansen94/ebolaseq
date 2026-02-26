@@ -445,24 +445,14 @@ def cli_main():
 
     original_dir = os.getcwd()
 
-    # Clean previous ebolaseq output from the output directory (if it exists),
-    # but never delete the directory itself or unrelated files.
-    _ebolaseq_dirs = {"FASTA", "BEAST_input", "Alignment", "Phylogeny"}
-    _ebolaseq_files = {"ebolaseq_run.log"}
+    # If output dir points to an existing directory (e.g. -o .), use an
+    # "output" subfolder so we never pollute or destroy the user's files.
+    if os.path.isdir(args.output_dir) and os.listdir(args.output_dir):
+        args.output_dir = os.path.join(args.output_dir, "output")
+
     if os.path.exists(args.output_dir):
-        for name in _ebolaseq_dirs:
-            p = os.path.join(args.output_dir, name)
-            if os.path.isdir(p):
-                shutil.rmtree(p)
-        for name in _ebolaseq_files:
-            p = os.path.join(args.output_dir, name)
-            if os.path.isfile(p):
-                os.remove(p)
-        for f in os.listdir(args.output_dir):
-            if f.startswith("summary_") and f.endswith(".txt"):
-                os.remove(os.path.join(args.output_dir, f))
-    else:
-        os.makedirs(args.output_dir)
+        shutil.rmtree(args.output_dir)
+    os.makedirs(args.output_dir)
 
     os.chdir(args.output_dir)
     
