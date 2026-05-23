@@ -191,8 +191,15 @@ SPECIES_REGIONS_CDS = {
 }
 PROTEIN_DESCRIPTIONS_CDS = {
     "L": "RNA-dependent RNA polymerase", "NP": "nucleoprotein", "VP35": "polymerase cofactor",
-    "VP40": "matrix protein", "GP": "spike glycoprotein", "VP30": "minor nucleoprotein", "VP24": "membrane-associated protein",
+    "VP40": "matrix protein", "GP": "spike glycoprotein (full precursor)",
+    "GP1": "spike glycoprotein GP1 (receptor-binding)", "GP2": "spike glycoprotein GP2 (fusion)",
+    "VP30": "minor nucleoprotein", "VP24": "membrane-associated protein",
 }
+# Mature GP1 length in amino acids (furin cleavage after R-X-X-R motif); species-specific RefSeq.
+GP1_AA_LEN_BY_SPECIES = {
+    "zaire": 500, "sudan": 501, "reston": 505, "bundibugyo": 500, "tai_forest": 500,
+}
+GP_SUBUNITS = ("GP1", "GP2")
 # GP has RNA editing: spike glycoprotein CDS has an extra A at the editing site (join in GenBank).
 # 0-based offset in extracted GP CDS (ref_start..ref_end) where to insert 'A' so translation matches GP.
 GP_EDIT_OFFSET = {
@@ -416,7 +423,7 @@ def cli_main():
     opt_align.add_argument('--alignment', '-a', type=str, choices=['1', '2', '3'], default=None, metavar='{1,2,3}',
                            help='1 whole-genome alignment, 2 protein (CDS) alignment, 3 no alignment')
     opt_align.add_argument('--proteins', '-pr', type=str, default=None, metavar='LIST',
-                           help='For alignment=2: comma-separated L,NP,VP35,VP40,GP,VP30,VP24')
+                           help='For alignment=2: comma-separated L,NP,VP35,VP40,GP,GP1,GP2,VP30,VP24')
     opt_align.add_argument('--phylogeny', '-p', action='store_true', help='Build phylogeny from alignment')
     opt_align.add_argument('-m', '--min-cds-fraction', type=float, default=0.5, metavar='F',
                            help='Min fraction of reference CDS length to keep a sequence (default: 0.5). E.g. 0.2 keeps more partial, 0.8 is stricter.')
@@ -599,18 +606,20 @@ def main(args, non_interactive=False):
             print("2. NP (nucleoprotein)")
             print("3. VP35 (polymerase cofactor)")
             print("4. VP40 (matrix protein)")
-            print("5. GP (spike glycoprotein)")
-            print("6. VP30 (minor nucleoprotein)")
-            print("7. VP24 (membrane-associated protein)")
-            protein_choice = input("\nSelect protein(s) (1-7 or e.g. 1,2): ").strip()
-            protein_map = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'VP30', '7': 'VP24'}
+            print("5. GP (spike glycoprotein, full)")
+            print("6. GP1 (spike GP1, receptor-binding)")
+            print("7. GP2 (spike GP2, fusion)")
+            print("8. VP30 (minor nucleoprotein)")
+            print("9. VP24 (membrane-associated protein)")
+            protein_choice = input("\nSelect protein(s) (1-9 or e.g. 1,2): ").strip()
+            protein_map = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'GP1', '7': 'GP2', '8': 'VP30', '9': 'VP24'}
             parts = [p.strip() for p in protein_choice.replace(',', ' ').split() if p.strip()]
             prots = []
             for p in parts:
                 if p in protein_map:
                     prots.append(protein_map[p])
                 else:
-                    print("Invalid protein option; use 1-7 or e.g. 1,2")
+                    print("Invalid protein option; use 1-9 or e.g. 1,2")
                     break
             else:
                 if prots:
@@ -1286,6 +1295,57 @@ def _translate_cds_to_protein(rec):
     aa = str(s.translate(table=1, to_stop=False, cds=False))
     return SeqRecord(Seq(aa), id=rec.id, description="")
 
+def _gp1_aa_length(aa, species=None):
+    """Length of mature GP1 in amino acids (cleavage C-terminal to furin R-X-X-R motif)."""
+    w0 = 450
+    if len(aa) > w0:
+        window = aa[w0:min(530, len(aa))]
+        m = re.search(r"R..R", window)
+        if m:
+            return w0 + m.end()
+    if species and species in GP1_AA_LEN_BY_SPECIES:
+        return GP1_AA_LEN_BY_SPECIES[species]
+    raise ValueError("GP furin cleavage motif not found and no species fallback for GP1 length")
+
+def _split_gp_cds_fasta(gp_cds_path, species_dir, species, write_gp1=True, write_gp2=True):
+    """Split RNA-edited GP CDS into GP1 and GP2 at furin cleavage (codon boundary)."""
+    from Bio.Seq import Seq
+    from Bio.SeqRecord import SeqRecord
+    records = list(SeqIO.parse(gp_cds_path, "fasta"))
+    if not records:
+        return
+    gp1_aa_len = _gp1_aa_length(str(_translate_cds_to_protein(records[0]).seq), species=species)
+    gp1_nt_len = gp1_aa_len * 3
+    gp1_recs, gp2_recs = [], []
+    for rec in records:
+        s = str(rec.seq)
+        if len(s) < gp1_nt_len:
+            continue
+        gp1_recs.append(SeqRecord(Seq(s[:gp1_nt_len]), id=rec.id, description=""))
+        if len(s) > gp1_nt_len:
+            gp2_recs.append(SeqRecord(Seq(s[gp1_nt_len:]), id=rec.id, description=""))
+    if write_gp1 and gp1_recs:
+        os.makedirs(os.path.join(species_dir, "GP1"), exist_ok=True)
+        with open(os.path.join(species_dir, "GP1", "cds.fasta"), "w") as f:
+            SeqIO.write(gp1_recs, f, "fasta")
+    if write_gp2 and gp2_recs:
+        os.makedirs(os.path.join(species_dir, "GP2"), exist_ok=True)
+        with open(os.path.join(species_dir, "GP2", "cds.fasta"), "w") as f:
+            SeqIO.write(gp2_recs, f, "fasta")
+
+def _expand_proteins_for_extraction(proteins):
+    """GP1/GP2 are extracted via full GP CDS then split at the furin cleavage site."""
+    out, seen = [], set()
+    for p in proteins:
+        if p in GP_SUBUNITS:
+            if "GP" not in seen:
+                out.append("GP")
+                seen.add("GP")
+        elif p not in seen:
+            out.append(p)
+            seen.add(p)
+    return out
+
 def _apply_gp_editing(cds_path, species):
     """Insert RNA-editing adenosine into GP CDS so translation matches spike glycoprotein (PAL2NAL can back-translate).
     Applied per species; works the same for one virus or many, and for GP-only or multi-protein runs."""
@@ -1384,6 +1444,10 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
     """
     work_dir = os.path.join(outroot_abs, "_work")
     os.makedirs(work_dir, exist_ok=True)
+    requested_proteins = list(proteins)
+    extract_proteins = _expand_proteins_for_extraction(requested_proteins)
+    want_gp1 = "GP1" in requested_proteins
+    want_gp2 = "GP2" in requested_proteins
     # extraction_counts[(species, protein)] = (n_passed, n_input)
     extraction_counts = {}
     for species, fpath in pairs:
@@ -1410,7 +1474,7 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
                 stdout=f, stderr=subprocess.DEVNULL,
             )
         protein_regions = SPECIES_REGIONS_CDS[species]
-        for protein in proteins:
+        for protein in extract_proteins:
             if protein not in protein_regions:
                 continue
             ref_start, ref_end = protein_regions[protein]
@@ -1419,7 +1483,15 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
             n_passed, n_input, dropped_ids, ref_len, dropped_best_bp = _extract_cds_from_sam(sam_path, ref_start, ref_end, query_ids, os.path.join(protdir, "cds.fasta"), min_cds_fraction)
             extraction_counts[(species, protein)] = (n_passed, n_input, dropped_ids, ref_len, dropped_best_bp)
             if protein == "GP":
-                _apply_gp_editing(os.path.join(protdir, "cds.fasta"), species)
+                gp_cds_path = os.path.join(protdir, "cds.fasta")
+                _apply_gp_editing(gp_cds_path, species)
+                if want_gp1 or want_gp2:
+                    _split_gp_cds_fasta(gp_cds_path, species_dir, species, write_gp1=want_gp1, write_gp2=want_gp2)
+                    gp_counts = extraction_counts[(species, protein)]
+                    if want_gp1:
+                        extraction_counts[(species, "GP1")] = gp_counts
+                    if want_gp2:
+                        extraction_counts[(species, "GP2")] = gp_counts
         try:
             os.unlink(sam_path)
         except OSError:
@@ -1433,7 +1505,12 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
         for rec in SeqIO.parse(combined_fasta, "fasta"):
             id_to_len[rec.id] = len(rec.seq)
     print("  (Per protein: only CDS coverage step drops sequences; each protein can keep a different number.)")
-    for protein in proteins:
+    def _extraction_key(species, protein):
+        if protein in GP_SUBUNITS:
+            return extraction_counts.get((species, protein)) or extraction_counts.get((species, "GP"))
+        return extraction_counts.get((species, protein))
+
+    for protein in requested_proteins:
         protdir = os.path.join(work_dir, protein)
         os.makedirs(protdir, exist_ok=True)
         combined_cds = os.path.join(protdir, "cds.fasta")
@@ -1529,20 +1606,20 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
             continue
         n_in_alignment = len(list(SeqIO.parse(cds_aligned, "fasta")))
         _def = (0, 0, [], 0, {})
-        total_input = sum(extraction_counts.get((s, protein), _def)[1] for s, _ in pairs)
-        total_passed = sum(extraction_counts.get((s, protein), _def)[0] for s, _ in pairs)
+        total_input = sum((_extraction_key(s, protein) or _def)[1] for s, _ in pairs)
+        total_passed = sum((_extraction_key(s, protein) or _def)[0] for s, _ in pairs)
         dropped = total_input - total_passed
         dropped_ids_this_protein = []
         dropped_coverage = []  # (did, best_bp, ref_len) for diagnostics
         for s, _ in pairs:
-            t = extraction_counts.get((s, protein), _def)
+            t = _extraction_key(s, protein) or _def
             dropped_ids_this_protein.extend(t[2])
             ref_len = t[3]
             best_bp = t[4]
             for did in t[2]:
                 dropped_coverage.append((did, best_bp.get(did, 0), ref_len))
         protein_dropped_ids[protein] = dropped_ids_this_protein
-        per_species = " ".join("%s %d→%d" % (s, extraction_counts.get((s, protein), _def)[1], extraction_counts.get((s, protein), _def)[0]) for s, _ in pairs)
+        per_species = " ".join("%s %d→%d" % (s, (_extraction_key(s, protein) or _def)[1], (_extraction_key(s, protein) or _def)[0]) for s, _ in pairs)
         print("  %s: %d assigned to species → %d in alignment (%d dropped: CDS coverage < %.0f%% of reference or no alignment). Per species: %s" % (
             protein, total_input, n_in_alignment, dropped, min_cds_fraction * 100, per_species))
         if dropped_ids_this_protein:
@@ -1703,7 +1780,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
                     run_log.append("  split_skipped: %s" % sid)
         elif n_assigned != n_combined:
             print("Split by species: %d in combined → %d assigned to species." % (n_combined, n_assigned))
-        _num_to_protein = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'VP30', '7': 'VP24'}
+        _num_to_protein = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'GP1', '7': 'GP2', '8': 'VP30', '9': 'VP24'}
         raw = [x.strip().upper() for x in proteins_str.split(",") if x.strip()] if proteins_str else ["L"]
         proteins = [_num_to_protein.get(p, p) for p in raw]
         check_protein_cds_dependencies()
