@@ -31,7 +31,7 @@ conda create -n ebolaseq -c conda-forge -c bioconda python=3.9 pip mafft trimal 
 conda activate ebolaseq
 git clone https://github.com/DaanJansen94/ebolaseq.git
 cd ebolaseq
-python -m pip install .
+pip install .
 ```
 
 ## Usage
