@@ -310,49 +310,45 @@ def parse_virus_selection(choice, virus_processing_names):
         return [name], name.lower()
     return None, None
 
+# Closest-sister outgroup RefSeq per species (genus whole-genome tree); pan/multi uses Bombali.
+OUTGROUP_REFSEQ_BY_SPECIES = {
+    'Zaire_ebolavirus': {'outgroup': 'Bundibugyo_ebolavirus', 'refseq': 'NC_014373'},
+    'Sudan_ebolavirus': {'outgroup': 'Reston_ebolavirus', 'refseq': 'NC_004161'},
+    'Bundibugyo_ebolavirus': {'outgroup': 'Tai_Forest_ebolavirus', 'refseq': 'NC_014372'},
+    'Tai_Forest_ebolavirus': {'outgroup': 'Bundibugyo_ebolavirus', 'refseq': 'NC_014373'},
+    'Reston_ebolavirus': {'outgroup': 'Sudan_ebolavirus', 'refseq': 'NC_006432'},
+}
+BOMBALI_OUTGROUP_REFSEQ = 'NC_039345'
+
+
 def get_outgroup_reference(virus_choice_or_list):
-    """Get outgroup reference. virus_choice_or_list: single species name or list of species (for pan/multi)."""
+    """Fetch outgroup RefSeq GenBank record for tree rooting (--phylogeny).
+
+    Single species: closest sister taxon (RefSeq).
+    Two or more species: Bombali ebolavirus (outside the five classic species).
+
+    Returns (record, outgroup_species, refseq_accession).
+    """
     Entrez.email = "anonymous@example.com"
     virus_list = virus_choice_or_list if isinstance(virus_choice_or_list, list) else [virus_choice_or_list]
     virus_set = set(virus_list)
-
-    # Dictionary of reference sequences for each species (RefSeq accessions)
-    refseq_dict = {
-        'Zaire_ebolavirus': {'outgroup': 'Sudan_ebolavirus', 'refseq': 'NC_006432'},
-        'Sudan_ebolavirus': {'outgroup': 'Zaire_ebolavirus', 'refseq': 'NC_002549'},
-        'Bundibugyo_ebolavirus': {'outgroup': 'Zaire_ebolavirus', 'refseq': 'NC_002549'},
-        'Tai_Forest_ebolavirus': {'outgroup': 'Zaire_ebolavirus', 'refseq': 'NC_002549'},
-        'Reston_ebolavirus': {'outgroup': 'Zaire_ebolavirus', 'refseq': 'NC_002549'}
-    }
-    # For pan (all 5), use Bombali ebolavirus as outgroup (not in the 5 species)
-    bombali_refseq = 'NC_039345'
+    refseq_dict = OUTGROUP_REFSEQ_BY_SPECIES
 
     if len(virus_set) == 1:
         virus_choice = virus_list[0]
         outgroup_info = refseq_dict[virus_choice]
         refseq_id = outgroup_info['refseq']
         outgroup_species = outgroup_info['outgroup']
-    elif len(virus_set) >= 2:
-        # Pan or any multi-species: use Bombali ebolavirus as sole outgroup
-        refseq_id = bombali_refseq
-        outgroup_species = 'Bombali_ebolavirus'
     else:
-        # Multi (2–4 species): use first species not in the set
-        for sp in refseq_dict:
-            if sp not in virus_set:
-                outgroup_info = refseq_dict[sp]
-                refseq_id = outgroup_info['refseq']
-                outgroup_species = outgroup_info['outgroup']
-                break
-        else:
-            refseq_id = refseq_dict['Zaire_ebolavirus']['refseq']
-            outgroup_species = 'Sudan_ebolavirus'
+        # Pan or any multi-species selection: Bombali ebolavirus
+        refseq_id = BOMBALI_OUTGROUP_REFSEQ
+        outgroup_species = 'Bombali_ebolavirus'
 
     handle = Entrez.efetch(db="nucleotide", id=refseq_id, rettype="gb", retmode="text")
     record = SeqIO.read(handle, "genbank")
     handle.close()
 
-    return record, outgroup_species
+    return record, outgroup_species, refseq_id
 
 def get_sequences_to_remove(remove_file):
     """Read list of sequences to remove from file."""
@@ -667,9 +663,9 @@ def main(args, non_interactive=False):
     summary_filename = f"summary_{base_filename}.txt"
     
     # Outgroup only when --phylogeny (for tree rooting)
-    outgroup_record = outgroup_species = outgroup_filename = None
+    outgroup_record = outgroup_species = outgroup_filename = outgroup_refseq = outgroup_tip_id = None
     if args.phylogeny:
-        outgroup_record, outgroup_species = get_outgroup_reference(virus_choices)
+        outgroup_record, outgroup_species, outgroup_refseq = get_outgroup_reference(virus_choices)
         outgroup_filename = f"outgroup_{outgroup_species.lower()}_{genome_type_str}_{host_str}.fasta"
     
     # Create output directories and files
@@ -689,6 +685,7 @@ def main(args, non_interactive=False):
                 outgroup_record.id = f"{outgroup_record.id}/{outgroup_species}/Uganda"
             outgroup_record.description = ""
             SeqIO.write(outgroup_record, outgroup_file, "fasta")
+            outgroup_tip_id = outgroup_record.id
     
     # Process sequences and write FASTA files
     sequences_written = 0
@@ -781,9 +778,14 @@ def main(args, non_interactive=False):
     with open(summary_filename, "w") as summary:
         if outgroup_record is not None:
             summary.write("=== Suggested Outgroup (for tree rooting when using --phylogeny) ===\n")
-            summary.write(f"Species: {outgroup_species}\n")
-            summary.write(f"Sequence ID: {outgroup_record.id}\n")
-            summary.write("Type: Reference sequence (RefSeq)\n")
+            if len(virus_choices) == 1:
+                summary.write("Strategy: closest sister species (RefSeq)\n")
+            else:
+                summary.write("Strategy: Bombali ebolavirus (pan / multi-species)\n")
+            summary.write(f"Outgroup species: {outgroup_species}\n")
+            summary.write(f"RefSeq accession: {outgroup_refseq}\n")
+            summary.write(f"Sequence ID in FASTA: {outgroup_record.id}\n")
+            summary.write(f"NCBI: https://www.ncbi.nlm.nih.gov/nuccore/{outgroup_refseq}\n")
             summary.write(f"File: FASTA/{os.path.basename(outgroup_filename)}\n")
         else:
             summary.write("Outgroup not included (use --phylogeny to add outgroup for tree rooting).\n")
@@ -849,7 +851,7 @@ def main(args, non_interactive=False):
         if args.alignment == '1':
             if args.phylogeny:
                 print("\nStarting phylogenetic analysis (whole genome)...")
-                create_phylogenetic_tree("FASTA", threads=nthreads)
+                create_phylogenetic_tree("FASTA", threads=nthreads, outgroup_tip_id=outgroup_tip_id)
                 print("Phylogenetic analysis completed!")
             else:
                 print("\nStarting whole-genome alignment...")
@@ -1826,8 +1828,8 @@ def create_alignment_only(source_fasta_dir, threads=1):
         print(f"Error during alignment: {str(e)}")
 
 
-def create_phylogenetic_tree(source_fasta_dir, threads=1):
-    """Build Alignment/ (if needed), then run IQTree2 in Phylogeny/ using trimmed alignment. threads: for MAFFT and IQTree2 (0 = all CPUs)."""
+def create_phylogenetic_tree(source_fasta_dir, threads=1, outgroup_tip_id=None):
+    """Build Alignment/ (if needed), then run IQTree2 in Phylogeny/ using trimmed alignment. threads: for MAFFT and IQTree2 (0 = all CPUs). outgroup_tip_id: IQ-TREE -o tip name(s) for rooting."""
     print("\nStarting phylogenetic analysis pipeline...")
     try:
         check_dependencies()
@@ -1844,6 +1846,11 @@ def create_phylogenetic_tree(source_fasta_dir, threads=1):
         os.chdir(phylogeny_dir)
         iqtree_nt = "AUTO" if (threads <= 0) else str(threads)
         iqtree_cmd = f"iqtree2 -s Ebola_trimmed.fasta -m MFP -bb 10000 -nt {iqtree_nt}"
+        if outgroup_tip_id:
+            # Match tip label in alignment (quote for special characters in header)
+            safe_o = outgroup_tip_id.replace("'", "")
+            iqtree_cmd += f" -o '{safe_o}'"
+            print(f"IQ-TREE rooting on outgroup tip: {outgroup_tip_id}")
         result = subprocess.run(iqtree_cmd, shell=True, stderr=subprocess.PIPE, text=True)
         os.chdir(current_dir)
         if result.returncode != 0:
