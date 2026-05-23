@@ -27,7 +27,7 @@ conda activate ebolaseq
 
 ### Option 2: From source
 ```bash
-conda create -n ebolaseq -c conda-forge -c bioconda python=3.9 mafft trimal iqtree=2.4.0 biopython minimap2 pal2nal
+conda create -n ebolaseq -c conda-forge -c bioconda python=3.9 pip mafft trimal iqtree=2.4.0 biopython minimap2 pal2nal
 conda activate ebolaseq
 git clone https://github.com/DaanJansen94/ebolaseq.git
 cd ebolaseq
