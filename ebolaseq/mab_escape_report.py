@@ -5,7 +5,6 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from importlib import resources
 from typing import Callable, Dict, List, Optional, Set, Tuple
 from urllib.request import urlopen
@@ -442,124 +441,34 @@ def _canonical_isolate_order(matrix: dict, ref_id: str) -> List[str]:
     return others
 
 
-def _bool_csv(flag: bool) -> str:
-    return "TRUE" if flag else "FALSE"
+def _xlsx_sheet(ws, header: List[str], rows: List[List]) -> None:
+    ws.append(header)
+    for row in rows:
+        ws.append(row)
 
 
-def _proven_escape_join(ent: PositionEntry) -> str:
-    return ";".join(ent.proven_escape) if ent.proven_escape else ""
-
-
-def _cohort_label(seq_id: str) -> str:
-    return "consensus" if _is_user_consensus(seq_id) else "downloaded"
-
-
-def write_csv_exports(
+def write_r_workbook(
     output_dir: str,
     gp_aln_path: str,
-    metadata: dict,
     watchlist: List[PositionEntry],
     ref_id: str,
     matrix: dict,
     summaries: dict,
-) -> List[str]:
-    """Write R-friendly CSV tables (tidy long + wide matrix + summaries)."""
-    import csv
+) -> str:
+    """One Excel file (tabs) with tables needed for R figures."""
+    from openpyxl import Workbook
 
     work_dir = _work_dir_from_aln(gp_aln_path)
     country_map = _load_country_map(work_dir)
     contact_positions = [ent for ent in watchlist if ent.contact]
     n_contact = len(contact_positions)
-    ref_label = _reference_label(metadata)
-    ref_accession = metadata.get("reference_accession", metadata.get("baseline_accession", ""))
-    isolates = _canonical_isolate_order(matrix, ref_id)
-    n_nonref = len([s for s in isolates if s != ref_id])
-    written: List[str] = []
-
-    def write_rows(filename: str, header: List[str], rows: List[List]) -> None:
-        path = os.path.join(output_dir, filename)
-        with open(path, "w", encoding="utf-8", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(header)
-            w.writerows(rows)
-        written.append(path)
-
-    run_rows = [[
-        ref_label,
-        ref_accession,
-        _accession(ref_id),
-        ref_id,
-        gp_aln_path,
-        len(watchlist),
-        n_nonref,
-        n_contact,
-        datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    ]]
-    write_rows(
-        "run_info.csv",
-        [
-            "baseline_label",
-            "baseline_accession",
-            "reference_accession",
-            "reference_seq_id",
-            "gp_alignment",
-            "n_watchlist_positions",
-            "n_isolates",
-            "n_contact_positions",
-            "generated_utc",
-        ],
-        run_rows,
-    )
-
-    meta_header = [
-        "pos",
-        "domain",
-        "region",
-        "ref_aa",
-        "contact",
-        "mAb114",
-        "REGN3470",
-        "REGN3471",
-        "REGN3479",
-        "proven_escape",
-    ]
-    wide_rows = []
-    for ent in watchlist:
-        meta = [
-            ent.pos,
-            ent.domain,
-            ent.region,
-            ent.zaire_aa,
-            _bool_csv(ent.contact),
-            _bool_csv(ent.mAb114),
-            _bool_csv(ent.REGN3470),
-            _bool_csv(ent.REGN3471),
-            _bool_csv(ent.REGN3479),
-            _proven_escape_join(ent),
-        ]
-        cells = []
-        for sid in isolates:
-            c = matrix[sid][ent.pos]
-            if c.status == "escape" and c.mutation_label:
-                cells.append(c.mutation_label)
-            else:
-                cells.append(c.aa)
-        wide_rows.append(meta + cells)
-    write_rows(
-        "epitope_matrix.csv",
-        meta_header + [_accession(s) for s in isolates],
-        wide_rows,
-    )
+    nonref = sorted([sid for sid in matrix if sid != ref_id], key=_accession)
 
     cell_header = [
         "accession",
-        "seq_id",
         "species",
         "country",
-        "cohort",
-        "is_reference",
         "pos",
-        "domain",
         "region",
         "ref_aa",
         "aa",
@@ -568,13 +477,10 @@ def write_csv_exports(
         "grantham",
         "contact",
         "mAb114",
-        "REGN3470",
         "REGN3471",
-        "REGN3479",
-        "proven_escape",
     ]
     cell_rows = []
-    for sid in isolates:
+    for sid in nonref:
         summ = summaries.get(sid)
         species = summ.species if summ else _infer_species(sid)
         country = _infer_country(sid, country_map)
@@ -582,147 +488,72 @@ def write_csv_exports(
             c = matrix[sid][ent.pos]
             cell_rows.append([
                 _accession(sid),
-                sid,
                 species,
                 country,
-                _cohort_label(sid),
-                _bool_csv(sid == ref_id),
                 ent.pos,
-                ent.domain,
                 ent.region,
                 ent.zaire_aa,
                 c.aa,
                 c.status,
                 c.mutation_label or "",
-                "" if c.grantham is None else c.grantham,
-                _bool_csv(ent.contact),
-                _bool_csv(ent.mAb114),
-                _bool_csv(ent.REGN3470),
-                _bool_csv(ent.REGN3471),
-                _bool_csv(ent.REGN3479),
-                _proven_escape_join(ent),
+                c.grantham if c.grantham is not None else "",
+                ent.contact,
+                ent.mAb114,
+                ent.REGN3471,
             ])
-    write_rows("epitope_cells.csv", cell_header, cell_rows)
 
-    sum_header = [
+    iso_header = [
         "accession",
-        "seq_id",
         "species",
         "country",
-        "cohort",
-        "is_reference",
         "n_conserved_contact",
         "n_contact_sites",
         "pct_conserved_contact",
         "epitope_changes",
         "escape_matches",
         "max_grantham",
-        "mAb114_hits",
-        "REGN3470_hits",
-        "REGN3471_hits",
-        "REGN3479_hits",
         "mAb114_concern",
         "REGN_EB3_cocktail_concern",
     ]
-    sum_rows = []
-    for sid in sorted(matrix.keys(), key=_accession):
+    iso_rows = []
+    for sid in nonref:
         summ = summaries[sid]
         n_same = sum(
             1 for ent in contact_positions if matrix[sid][ent.pos].status == "same"
         )
         pct = round(100 * n_same / n_contact, 1) if n_contact else ""
-        sum_rows.append([
+        iso_rows.append([
             _accession(sid),
-            sid,
             summ.species,
             _infer_country(sid, country_map),
-            _cohort_label(sid),
-            _bool_csv(sid == ref_id),
             n_same,
             n_contact,
             pct,
             summ.n_changed,
             summ.n_escape_match,
             summ.max_grantham,
-            summ.mAb114_hits,
-            summ.regn3470_hits,
-            summ.regn3471_hits,
-            summ.regn3479_hits,
-            _bool_csv(summ.mab114_concern),
-            _bool_csv(summ.cocktail_concern),
+            summ.mab114_concern,
+            summ.cocktail_concern,
         ])
-    write_rows("isolate_summary.csv", sum_header, sum_rows)
 
     catalog = _collect_proven_escape_catalog(watchlist)
-    nonref = sorted([sid for sid in matrix if sid != ref_id], key=_accession)
-    cat_header = [
-        "mutation",
-        "pos",
-        "ref_aa",
-        "region",
-        "linked_mAbs",
-        "in_dataset",
-        "n_isolates",
-        "accessions",
-    ]
-    cat_rows = []
+    esc_header = ["mutation", "pos", "in_dataset", "n_isolates"]
+    esc_rows = []
     for item in catalog:
         hits = _isolates_with_escape(matrix, item["pos"], item["label"], nonref)
-        cat_rows.append([
-            item["label"],
-            item["pos"],
-            item["zaire_aa"],
-            item["region"],
-            ";".join(item["mabs"]),
-            _bool_csv(bool(hits)),
-            len(hits),
-            ";".join(hits),
-        ])
-    write_rows("proven_escape_catalog.csv", cat_header, cat_rows)
+        esc_rows.append([item["label"], item["pos"], bool(hits), len(hits)])
 
-    return written
-
-
-def write_csv(path: str, watchlist: List[PositionEntry], ref_id: str, matrix: dict):
-    """Backward-compatible wrapper: writes only the wide matrix to *path*."""
-    import csv
-
-    isolates = _canonical_isolate_order(matrix, ref_id)
-    meta_header = [
-        "pos",
-        "domain",
-        "region",
-        "ref_aa",
-        "contact",
-        "mAb114",
-        "REGN3470",
-        "REGN3471",
-        "REGN3479",
-        "proven_escape",
-    ]
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(meta_header + [_accession(s) for s in isolates])
-        for ent in watchlist:
-            row = [
-                ent.pos,
-                ent.domain,
-                ent.region,
-                ent.zaire_aa,
-                _bool_csv(ent.contact),
-                _bool_csv(ent.mAb114),
-                _bool_csv(ent.REGN3470),
-                _bool_csv(ent.REGN3471),
-                _bool_csv(ent.REGN3479),
-                _proven_escape_join(ent),
-            ]
-            for sid in isolates:
-                c = matrix[sid][ent.pos]
-                if c.status == "escape" and c.mutation_label:
-                    row.append(c.mutation_label)
-                else:
-                    row.append(c.aa)
-            w.writerow(row)
+    path = os.path.join(output_dir, "mab_escape_data.xlsx")
+    wb = Workbook()
+    ws_cells = wb.active
+    ws_cells.title = "epitope_cells"
+    _xlsx_sheet(ws_cells, cell_header, cell_rows)
+    ws_iso = wb.create_sheet("isolates")
+    _xlsx_sheet(ws_iso, iso_header, iso_rows)
+    ws_esc = wb.create_sheet("escape_catalog")
+    _xlsx_sheet(ws_esc, esc_header, esc_rows)
+    wb.save(path)
+    return path
 
 
 
@@ -1186,10 +1017,9 @@ def run_mab_escape_report(gp_aln_path: str, output_dir: str = "Escape", watchlis
     ref_id, pos_to_col, matrix, summaries, excluded = score_alignment(gp_aln_path, watchlist, metadata)
     html_path = os.path.join(output_dir, "gp_mab_escape_report.html")
     write_html(html_path, gp_aln_path, metadata, watchlist, ref_id, matrix, summaries, excluded)
-    csv_paths = write_csv_exports(
-        output_dir, gp_aln_path, metadata, watchlist, ref_id, matrix, summaries
+    xlsx_path = write_r_workbook(
+        output_dir, gp_aln_path, watchlist, ref_id, matrix, summaries
     )
     print(f"mab-escape-report: wrote {html_path}")
-    for p in csv_paths:
-        print(f"mab-escape-report: wrote {p}")
+    print(f"mab-escape-report: wrote {xlsx_path}")
     return html_path

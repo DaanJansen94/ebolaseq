@@ -147,7 +147,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 - **FASTA/** — Filtered sequences and `location.txt`.
 - **Alignment/** — For whole-genome: `FASTA/`, `MAFFT/`, `Trimmed/`. For protein: `pan/` (or species name) with e.g. `L/`, `NP/` each containing `cds_aligned.fasta`.
 - **Phylogeny/** — IQTree2 results (whole-genome: one tree; protein: one folder per protein).
-- **Escape/** — mAb escape report (`gp_mab_escape_report.html` plus CSVs for R: `epitope_cells.csv` tidy long table, `epitope_matrix.csv` wide matrix, `isolate_summary.csv`, `proven_escape_catalog.csv`, `run_info.csv`; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Example in R: `cells <- read.csv("Escape/epitope_cells.csv"); summary <- read.csv("Escape/isolate_summary.csv")`.
+- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx` with sheets `epitope_cells`, `isolates`, `escape_catalog` for R; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). In R: `library(readxl); read_excel("Escape/mab_escape_data.xlsx", "epitope_cells")`.
 - **summary_*.txt** — Run summary and location counts.
 
 ## Notes
@@ -158,7 +158,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 ## Dependencies
 
 - Python ≥ 3.9
-- Biopython ≥ 1.81
+- Biopython ≥ 1.81, openpyxl ≥ 3.1 (mAb escape Excel export)
 - MAFFT, TrimAl, IQTree2  
 - For protein alignment: minimap2, pal2nal
 
