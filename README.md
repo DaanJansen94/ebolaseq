@@ -120,6 +120,8 @@ EbolaSeq can be run in two modes:
 
 **`-t`, `--threads`** — Threads for minimap2 and MAFFT (default 1). E.g. `-t 64` on a 64-core node. 0 = use all CPUs.
 
+**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for mAb114 (Ebanga) and REGN-EB3 (Inmazeb), using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
+
 **`--remove`** — Path to file listing sequence IDs/headers to exclude
 
 ### Examples
@@ -145,6 +147,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 - **FASTA/** — Filtered sequences and `location.txt`.
 - **Alignment/** — For whole-genome: `FASTA/`, `MAFFT/`, `Trimmed/`. For protein: `pan/` (or species name) with e.g. `L/`, `NP/` each containing `cds_aligned.fasta`.
 - **Phylogeny/** — IQTree2 results (whole-genome: one tree; protein: one folder per protein).
+- **Escape/** — mAb escape report (`gp_mab_escape_report.html` plus CSVs for R: `epitope_cells.csv` tidy long table, `epitope_matrix.csv` wide matrix, `isolate_summary.csv`, `proven_escape_catalog.csv`, `run_info.csv`; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Example in R: `cells <- read.csv("Escape/epitope_cells.csv"); summary <- read.csv("Escape/isolate_summary.csv")`.
 - **summary_*.txt** — Run summary and location counts.
 
 ## Notes

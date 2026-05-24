@@ -386,6 +386,48 @@ def get_sequences_to_remove(remove_file):
     
     return to_remove
 
+
+_MAB_ESCAPE_PROTEIN_NUM = {
+    '1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP',
+    '6': 'GP1', '7': 'GP2', '8': 'VP30', '9': 'VP24',
+}
+
+
+def _normalize_protein_list(proteins_str: str) -> list:
+    raw = [x.strip().upper() for x in (proteins_str or '').split(',') if x.strip()]
+    return [_MAB_ESCAPE_PROTEIN_NUM.get(p, p) for p in raw]
+
+
+def _prepare_mab_escape_report(args):
+    """Ensure protein alignment includes full GP when escape report is requested."""
+    if not getattr(args, 'mab_escape_report', False):
+        return
+    if args.alignment != '2':
+        prev = args.alignment or '3'
+        args.alignment = '2'
+        print("mab-escape-report: using protein alignment (-a 2) (was %s)." % prev)
+    proteins = _normalize_protein_list(args.proteins)
+    if 'GP' not in proteins:
+        proteins.append('GP')
+        args.proteins = ','.join(proteins)
+        print("mab-escape-report: added GP to protein alignment list.")
+    elif not args.proteins:
+        args.proteins = 'GP'
+
+
+def _run_mab_escape_report_if_ready(args):
+    """Run GP mAb escape report when GP protein alignment exists."""
+    gp_aln = os.path.join("Alignment", "MAFFT", "GP", "protein_aln.fasta")
+    if not os.path.isfile(gp_aln):
+        print("mab-escape-report: %s not found; skipped." % gp_aln)
+        return
+    try:
+        from ebolaseq.mab_escape_report import run_mab_escape_report
+        run_mab_escape_report(gp_aln, output_dir="Escape")
+    except Exception as exc:
+        print("mab-escape-report failed: %s" % exc)
+
+
 def cli_main():
     """Entry point for command line interface"""
     parser = argparse.ArgumentParser(
@@ -429,6 +471,8 @@ def cli_main():
                            help='Min fraction of reference CDS length to keep a sequence (default: 0.5). E.g. 0.2 keeps more partial, 0.8 is stricter.')
     opt_align.add_argument('-t', '--threads', type=int, default=1, metavar='N',
                            help='Threads for minimap2, MAFFT, and IQTree2 (default: 1). E.g. -t 64 on a 64-core node. 0 = use all CPUs.')
+    opt_align.add_argument('--mab-escape-report', action='store_true',
+                           help='GP mAb escape report (mAb114 / REGN-EB3); adds GP protein alignment if needed')
 
     opt_other = parser.add_argument_group('Optional — other')
     opt_other.add_argument('--remove', type=str, metavar='FILE', help='File listing sequence IDs/headers to exclude')
@@ -528,6 +572,10 @@ def main(args, non_interactive=False):
             args.alignment = '3'
         if args.alignment == '2' and not args.proteins:
             args.proteins = 'L'
+        if not hasattr(args, 'mab_escape_report'):
+            args.mab_escape_report = False
+        if getattr(args, 'mab_escape_report', False):
+            _prepare_mab_escape_report(args)
     else:
         # Interactive mode
         print("\nAvailable Ebola virus species:")
@@ -589,19 +637,29 @@ def main(args, non_interactive=False):
         else:
             beast_choice = '1'
 
-        # Alignment type and protein selection (interactive only)
-        print("\nDo you want to perform alignment?")
-        print("1. Whole genome alignment")
-        print("2. Protein (CDS-based, protein-level alignment)")
-        print("3. No")
-        alignment_choice = input("\nSelect alignment option (1-3): ").strip()
-        while alignment_choice not in ('1', '2', '3'):
-            print("Please enter 1, 2, or 3")
-            alignment_choice = input("Select alignment option (1-3): ").strip()
-        args.alignment = alignment_choice
+        # mAb escape report first (sets alignment / GP needs for later prompts)
+        args.mab_escape_report = False
+        print("\nRun mAb escape epitope report (mAb114 / REGN-EB3)?")
+        print("1. Yes")
+        print("2. No")
+        escape_choice = input("\nSelect option (1-2): ").strip()
+        while escape_choice not in ('1', '2'):
+            print("Please enter 1 or 2")
+            escape_choice = input("Select option (1-2): ").strip()
+        args.mab_escape_report = (escape_choice == '1')
+
+        protein_map = {
+            '1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP',
+            '6': 'GP1', '7': 'GP2', '8': 'VP30', '9': 'VP24',
+            'L': 'L', 'NP': 'NP', 'VP35': 'VP35', 'VP40': 'VP40',
+            'GP': 'GP', 'GP1': 'GP1', 'GP2': 'GP2', 'VP30': 'VP30', 'VP24': 'VP24',
+        }
+
         args.proteins = None
-        if alignment_choice == '2':
-            print("\nSelect protein(s) to align (comma-separated for multiple, e.g. 1,2 or 1,2,3):")
+        if args.mab_escape_report:
+            args.alignment = '2'
+            print("\nProtein alignment is required for the escape report (GP will be included).")
+            print("\nSelect additional protein(s) to align (comma-separated; GP is added automatically):")
             print("1. L (RNA-dependent RNA polymerase)")
             print("2. NP (nucleoprotein)")
             print("3. VP35 (polymerase cofactor)")
@@ -611,22 +669,63 @@ def main(args, non_interactive=False):
             print("7. GP2 (spike GP2, fusion)")
             print("8. VP30 (minor nucleoprotein)")
             print("9. VP24 (membrane-associated protein)")
-            protein_choice = input("\nSelect protein(s) (1-9 or e.g. 1,2): ").strip()
-            protein_map = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'GP1', '7': 'GP2', '8': 'VP30', '9': 'VP24'}
-            parts = [p.strip() for p in protein_choice.replace(',', ' ').split() if p.strip()]
-            prots = []
-            for p in parts:
-                if p in protein_map:
-                    prots.append(protein_map[p])
+            print("Press Enter for GP only.")
+            protein_choice = input("\nSelect protein(s) (optional, e.g. 1,2): ").strip()
+            prots = ['GP']
+            if protein_choice:
+                parts = [p.strip() for p in protein_choice.replace(',', ' ').split() if p.strip()]
+                for p in parts:
+                    key = p.upper() if p.upper() in protein_map else p
+                    if key in protein_map:
+                        name = protein_map[key]
+                        if name not in prots:
+                            prots.append(name)
+                    else:
+                        print("Invalid protein option; using GP only.")
+                        prots = ['GP']
+                        break
+            args.proteins = ','.join(prots)
+            alignment_choice = '2'
+        else:
+            print("\nDo you want to perform alignment?")
+            print("1. Whole genome alignment")
+            print("2. Protein (CDS-based, protein-level alignment)")
+            print("3. No")
+            alignment_choice = input("\nSelect alignment option (1-3): ").strip()
+            while alignment_choice not in ('1', '2', '3'):
+                print("Please enter 1, 2, or 3")
+                alignment_choice = input("Select alignment option (1-3): ").strip()
+            args.alignment = alignment_choice
+            if alignment_choice == '2':
+                print("\nSelect protein(s) to align (comma-separated for multiple, e.g. 1,2 or 1,2,3):")
+                print("1. L (RNA-dependent RNA polymerase)")
+                print("2. NP (nucleoprotein)")
+                print("3. VP35 (polymerase cofactor)")
+                print("4. VP40 (matrix protein)")
+                print("5. GP (spike glycoprotein, full)")
+                print("6. GP1 (spike GP1, receptor-binding)")
+                print("7. GP2 (spike GP2, fusion)")
+                print("8. VP30 (minor nucleoprotein)")
+                print("9. VP24 (membrane-associated protein)")
+                protein_choice = input("\nSelect protein(s) (1-9 or e.g. 1,2): ").strip()
+                parts = [p.strip() for p in protein_choice.replace(',', ' ').split() if p.strip()]
+                prots = []
+                for p in parts:
+                    key = p.upper() if p.upper() in protein_map else p
+                    if key in protein_map:
+                        prots.append(protein_map[key])
+                    else:
+                        print("Invalid protein option; use 1-9, names (e.g. GP), or e.g. 1,2")
+                        break
                 else:
-                    print("Invalid protein option; use 1-9 or e.g. 1,2")
-                    break
-            else:
-                if prots:
-                    args.proteins = ','.join(prots)
-            if not args.proteins:
-                args.proteins = 'L'
-                print("Defaulting to L.")
+                    if prots:
+                        args.proteins = ','.join(prots)
+                if not args.proteins:
+                    args.proteins = 'L'
+                    print("Defaulting to L.")
+
+        if args.mab_escape_report:
+            _prepare_mab_escape_report(args)
         if alignment_choice in ('1', '2'):
             print("\nDo you want to build a phylogeny?")
             print("1. Yes")
@@ -1830,6 +1929,8 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
     print("Protein pipeline completed. Output: Alignment/FASTA, Alignment/MAFFT, Alignment/Trimmed")
     if do_phylogeny:
         print("Note: If IQ-TREE reported 'X identical sequences ignored', those sequences are still in the alignment; IQ-TREE uses only unique sequences for the tree and places identical ones at the same branch (e.g. 84 in alignment → 62 unique + 22 identical).")
+    if getattr(args, 'mab_escape_report', False):
+        _run_mab_escape_report_if_ready(args)
 
 
 def run_alignment_pipeline(source_fasta_dir, threads=1):

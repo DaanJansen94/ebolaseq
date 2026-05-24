@@ -21,3 +21,6 @@ ebolaseq = "ebolaseq.ebolaseq:cli_main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.package-data]
+ebolaseq = ["data/*.json", "data/*.fasta"]
