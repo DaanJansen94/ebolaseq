@@ -329,7 +329,8 @@ def _render_treatment_summary_table(
             f"{extra_cells}</tr>"
         )
     body = "".join(rows) if rows else f'<tr><td colspan="{n_cols}"><em>No isolates</em></td></tr>'
-    return f"""<table class="summary-table sortable-table" id="{table_id}"><thead><tr>
+    return f"""<h3 class="summary-treatment-title">{title}</h3>
+<table class="summary-table sortable-table" id="{table_id}"><thead><tr>
 {"".join(head_cells)}
 </tr></thead><tbody>{body}</tbody></table>"""
 
@@ -1035,7 +1036,9 @@ th {{ background: #e8ecf1; white-space: nowrap; }}
 .toggle-isolate-summary {{ margin-left: 0.5rem; padding: 0.3rem 0.65rem; font-size: 0.8rem; font-weight: normal; cursor: pointer; }}
 .isolate-summary-collapsed {{ display: none; }}
 .isolate-summary-heading {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }}
-.isolate-summary-body .summary-table + .summary-table {{ margin-top: 1.25rem; }}
+.summary-treatment-title {{ font-size: 1rem; margin: 1.1rem 0 0.45rem; color: var(--accent); font-weight: 600; }}
+.isolate-summary-body .summary-treatment-title:first-of-type {{ margin-top: 0.25rem; }}
+.isolate-summary-body .summary-table + .summary-treatment-title {{ margin-top: 1.35rem; }}
 th.sortable {{ cursor: pointer; user-select: none; }}
 th.sortable:hover {{ background: #dce3eb; }}
 th.sortable.sorted-asc::after {{ content: " ▲"; font-size: 0.75em; }}
