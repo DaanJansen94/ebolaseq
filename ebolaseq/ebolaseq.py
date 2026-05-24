@@ -821,8 +821,6 @@ def main(args, non_interactive=False):
     if sequences_removed > 0:
         print(f"Sequences removed: {sequences_removed}")
 
-    run_log = ["Sequences downloaded: %d" % sequences_written]
-
     # Create location file in FASTA directory
     fasta_location_file = os.path.join("FASTA", "location.txt")
     with open(fasta_location_file, "w") as loc_file:
@@ -944,7 +942,7 @@ def main(args, non_interactive=False):
                 else:
                     print("Failed to copy consensus: %s" % path)
         if consensus_copied:
-            run_log.append("Consensus added: %d (%s)" % (len(consensus_copied), ", ".join(consensus_copied)))
+            print("Consensus added: %d (%s)" % (len(consensus_copied), ", ".join(consensus_copied)))
 
         fasta_path = os.path.join("FASTA", fasta_filename)
         outgroup_path = os.path.join("FASTA", outgroup_filename) if outgroup_filename else None
@@ -966,13 +964,7 @@ def main(args, non_interactive=False):
                 create_alignment_only("FASTA", threads=nthreads)
                 print("Alignment completed!")
         elif args.alignment == '2':
-            run_protein_pipeline("FASTA", args.proteins, args.phylogeny, virus_choices, base_name, args, run_log=run_log)
-        # Write run log
-        if run_log:
-            log_path = "ebolaseq_run.log"
-            with open(log_path, "w") as f:
-                f.write("\n".join(run_log))
-            print("Run log written to %s" % log_path)
+            run_protein_pipeline("FASTA", args.proteins, args.phylogeny, virus_choices, base_name, args)
     except Exception as e:
         print(f"Error during processing: {str(e)}")
         raise  # Add this to see full error traceback
@@ -1804,8 +1796,8 @@ def split_fasta_by_species(fasta_path, alignment_dir, consensus_paths=None):
     return out_pairs, n_assigned, n_skipped, skipped_ids
 
 
-def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_choices, base_name, args, run_log=None):
-    """Run protein (CDS) alignment pipeline (built-in), then optionally IQTree per protein. run_log: optional list to append run summary for ebolaseq_run.log."""
+def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_choices, base_name, args):
+    """Run protein (CDS) alignment pipeline (built-in), then optionally IQTree per protein."""
     alignment_dir = "Alignment"
     os.makedirs(alignment_dir, exist_ok=True)
     # Build combined = single FASTA for alignment (all source FASTA files merged, duplicate IDs removed)
@@ -1857,10 +1849,10 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
     n_dup = n_read - len(combined_records)
     print("Combined (for alignment): %d from download FASTA + %d from consensus = %d total; %d duplicate IDs removed → %d sequences in combined." % (
         n_from_download, n_from_consensus, n_read, n_dup, len(combined_records)))
-    if run_log is not None and duplicate_ids:
-        run_log.append("Duplicates dropped: %d" % len(duplicate_ids))
+    if duplicate_ids:
+        print("Duplicates dropped: %d" % len(duplicate_ids))
         for did in duplicate_ids:
-            run_log.append("  duplicate: %s" % did)
+            print("  duplicate: %s" % did)
     # Do not pass consensus_paths: combined FASTA already includes consensus from source_fasta_dir,
     # so prepending again would double-count (e.g. 93 in combined + 22 prepended = 115 "assigned").
     with tempfile.TemporaryDirectory(prefix="ebolaseq_by_species_") as by_species_dir:
@@ -1873,10 +1865,6 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
             print("Split by species: %d in combined → %d assigned to species (%d skipped: ID not accession/species/... or species not recognized)." % (n_combined, n_assigned, n_skipped))
             for sid in split_skipped_ids:
                 print("  skipped: %s" % sid)
-            if run_log is not None:
-                run_log.append("Split by species: %d in combined → %d assigned (%d skipped, ID or species not recognized)" % (n_combined, n_assigned, n_skipped))
-                for sid in split_skipped_ids:
-                    run_log.append("  split_skipped: %s" % sid)
         elif n_assigned != n_combined:
             print("Split by species: %d in combined → %d assigned to species." % (n_combined, n_assigned))
         _num_to_protein = {'1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP', '6': 'GP1', '7': 'GP2', '8': 'VP30', '9': 'VP24'}
@@ -1890,16 +1878,16 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
         if nthreads <= 0:
             nthreads = os.cpu_count() or 1
         protein_dropped = run_protein_cds_pipeline(os.path.abspath(alignment_dir), pairs_abs, proteins, base_name=base_name, min_cds_fraction=min_cds, threads=nthreads, consensus_ids=consensus_ids)
-        if run_log is not None and protein_dropped:
+        if protein_dropped:
             any_dropped = any(ids for ids in protein_dropped.values())
             if any_dropped:
-                run_log.append("Dropped (protein coverage not met):")
+                print("Dropped (protein coverage not met):")
                 for protein, ids in protein_dropped.items():
                     if not ids:
                         continue
-                    run_log.append("  %s: %d dropped" % (protein, len(ids)))
+                    print("  %s: %d dropped" % (protein, len(ids)))
                     for sid in ids:
-                        run_log.append("    %s" % sid)
+                        print("    %s" % sid)
     if do_phylogeny:
         check_dependencies()
         phylogeny_base = "Phylogeny"

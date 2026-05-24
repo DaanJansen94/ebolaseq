@@ -1,6 +1,6 @@
 # EbolaSeq
 
-EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment and generates phylogenetic trees.
+EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees. It also includes **in silico screening** of GP epitope changes relevant to approved monoclonal antibody therapies — **mAb114 (Ebanga / ansuvimab)** and **REGN-EB3 (Inmazeb; Regeneron)** — via the optional mAb escape report.
 
 ## Installation
 
@@ -147,7 +147,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 - **FASTA/** — Filtered sequences and `location.txt`.
 - **Alignment/** — For whole-genome: `FASTA/`, `MAFFT/`, `Trimmed/`. For protein: `pan/` (or species name) with e.g. `L/`, `NP/` each containing `cds_aligned.fasta`.
 - **Phylogeny/** — IQTree2 results (whole-genome: one tree; protein: one folder per protein).
-- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx` with sheets `epitope_cells`, `isolates`, `escape_catalog` for R; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). In R: `library(readxl); read_excel("Escape/mab_escape_data.xlsx", "epitope_cells")`.
+- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx`; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)).
 - **summary_*.txt** — Run summary and location counts.
 
 ## Notes

@@ -235,6 +235,105 @@ def _yes_no(flag: bool) -> str:
     return "Yes" if flag else "No"
 
 
+def _scope_filter_mab114(ent: PositionEntry) -> bool:
+    return ent.mAb114
+
+
+def _scope_filter_regn(ent: PositionEntry) -> bool:
+    return ent.REGN3470 or ent.REGN3471 or ent.REGN3479
+
+
+def _isolate_scope_stats(
+    sid: str,
+    matrix: dict,
+    watchlist: List[PositionEntry],
+    scope_filter: Callable[[PositionEntry], bool],
+) -> dict:
+    """Per-isolate counts within one therapy's watchlist footprint."""
+    contact_positions = [e for e in watchlist if e.contact and scope_filter(e)]
+    n_contact = len(contact_positions)
+    n_same = sum(
+        1 for ent in contact_positions if matrix[sid][ent.pos].status == "same"
+    )
+    pct = int(round(100 * n_same / n_contact)) if n_contact else 0
+    n_changed = n_escape = 0
+    max_g = 0
+    for ent in watchlist:
+        if not scope_filter(ent):
+            continue
+        c = matrix[sid][ent.pos]
+        if c.status in ("changed", "escape") and (ent.contact or ent.proven_escape):
+            n_changed += 1
+        if (
+            c.status == "escape"
+            and c.mutation_label
+            and c.mutation_label in ent.proven_escape
+        ):
+            n_escape += 1
+        if c.grantham is not None:
+            max_g = max(max_g, c.grantham)
+    return {
+        "n_same": n_same,
+        "n_contact": n_contact,
+        "pct": pct,
+        "n_changed": n_changed,
+        "n_escape": n_escape,
+        "max_grantham": max_g,
+    }
+
+
+def _render_treatment_summary_table(
+    matrix: dict,
+    summaries: dict,
+    watchlist: List[PositionEntry],
+    country_map: Dict[str, str],
+    table_id: str,
+    title: str,
+    scope_filter: Callable[[PositionEntry], bool],
+    extra_columns: List[Tuple[str, str, str, Callable[[IsolateSummary, dict], Tuple[str, object]]]],
+) -> str:
+    """HTML sortable summary for one therapy. extra_columns: label, sort_key, sort_type, value_fn -> (display, sort_val)."""
+    head_cells = [
+        '<th class="sortable" data-sort-key="accession" data-sort-type="text">Accession</th>',
+        '<th class="sortable" data-sort-key="species" data-sort-type="text">Species</th>',
+        '<th class="sortable" data-sort-key="country" data-sort-type="text">Country</th>',
+        '<th class="sortable" data-sort-key="conserved" data-sort-type="number">Conserved contact sites</th>',
+        '<th class="sortable" data-sort-key="epitope-changes" data-sort-type="number">Epitope changes</th>',
+        '<th class="sortable" data-sort-key="escape" data-sort-type="number">Escape matches</th>',
+        '<th class="sortable" data-sort-key="grantham" data-sort-type="number">Max Grantham</th>',
+    ]
+    for label, _sort_key, _sort_type, _value_fn in extra_columns:
+        head_cells.append(
+            f'<th class="sortable" data-sort-key="{_sort_key}" data-sort-type="{_sort_type}">{label}</th>'
+        )
+    rows = []
+    n_cols = 7 + len(extra_columns)
+    for sid in sorted(matrix.keys(), key=_accession):
+        s = summaries[sid]
+        st = _isolate_scope_stats(sid, matrix, watchlist, scope_filter)
+        country = _infer_country(sid, country_map)
+        extra_attrs = ""
+        extra_cells = ""
+        for _label, sort_key, _sort_type, value_fn in extra_columns:
+            display, sort_val = value_fn(s, st)
+            extra_attrs += f' data-{sort_key}="{sort_val}"'
+            extra_cells += f"<td>{display}</td>"
+        rows.append(
+            f'<tr data-accession="{_accession(sid)}" data-species="{s.species}" data-country="{country}"'
+            f' data-conserved="{st["n_same"]}" data-conserved-pct="{st["pct"]}"'
+            f' data-epitope-changes="{st["n_changed"]}" data-escape="{st["n_escape"]}"'
+            f' data-grantham="{st["max_grantham"]}"{extra_attrs}>'
+            f"<td>{_accession(sid)}</td><td>{s.species}</td><td>{country}</td>"
+            f'<td>{st["n_same"]}/{st["n_contact"]} ({st["pct"]}%)</td>'
+            f'<td>{st["n_changed"]}</td><td>{st["n_escape"]}</td><td>{st["max_grantham"]}</td>'
+            f"{extra_cells}</tr>"
+        )
+    body = "".join(rows) if rows else f'<tr><td colspan="{n_cols}"><em>No isolates</em></td></tr>'
+    return f"""<table class="summary-table sortable-table" id="{table_id}"><thead><tr>
+{"".join(head_cells)}
+</tr></thead><tbody>{body}</tbody></table>"""
+
+
 def _load_country_map(work_dir: str) -> Dict[str, str]:
     """taxon header or accession -> location from FASTA/location.txt."""
     path = os.path.join(work_dir, "FASTA", "location.txt")
@@ -267,8 +366,8 @@ def _infer_country(seq_id: str, country_map: Dict[str, str]) -> str:
     return "unknown"
 
 
-def find_escape_baseline_reference_id(records, metadata: dict) -> str:
-    """Prefer 2014–2016 Makona / West African outbreak sequence in the alignment."""
+def find_alignment_anchor_id(records, metadata: dict) -> str:
+    """Pick an MSA row to map Q05320 coordinates (not the amino-acid comparison baseline)."""
     preferred = [
         r"kj660346",
         r"makona",
@@ -279,15 +378,25 @@ def find_escape_baseline_reference_id(records, metadata: dict) -> str:
         r"/2016/",
         r"west.africa",
     ]
-    fallback = [r"zaire", r"zebov", r"ebolavirus", r"ebola virus"]
-    legacy = [r"NC_002549", r"mayinga", r"yambuku"]
-    for patterns in (preferred, fallback, legacy):
+    fallback = [
+        r"zaire.ebolavirus",
+        r"zaire_ebolavirus",
+        r"/zebov",
+        r"NC_002549",
+        r"mayinga",
+        r"yambuku",
+    ]
+    for patterns in (preferred, fallback):
         for rec in records:
             h = rec.id.lower()
             desc = (rec.description or "").lower()
             if any(re.search(p, h) or re.search(p, desc) for p in patterns):
                 return rec.id
     return records[0].id
+
+
+def find_escape_baseline_reference_id(records, metadata: dict) -> str:
+    return find_alignment_anchor_id(records, metadata)
 
 
 def find_zaire_reference_id(records, metadata: dict) -> str:
@@ -313,15 +422,15 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
     records = list(AlignIO.read(gp_aln_path, "fasta"))
     if not records:
         raise ValueError("Empty GP protein alignment")
-    ref_id = find_escape_baseline_reference_id(records, metadata)
-    ref_row = None
+    anchor_id = find_alignment_anchor_id(records, metadata)
+    anchor_row = None
     for rec in records:
-        if rec.id == ref_id:
-            ref_row = str(rec.seq)
+        if rec.id == anchor_id:
+            anchor_row = str(rec.seq)
             break
-    if ref_row is None:
-        ref_id = records[0].id
-        ref_row = str(records[0].seq)
+    if anchor_row is None:
+        anchor_id = records[0].id
+        anchor_row = str(records[0].seq)
 
     try:
         q05320_mature = _coordinate_mature_sequence(metadata)
@@ -334,7 +443,7 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
             q05320_mature[e.pos - mature_start] = e.zaire_aa
         q05320_mature = "".join(q05320_mature)
 
-    pos_to_col = _build_q05320_to_msa_col(q05320_mature, ref_row)
+    pos_to_col = _build_q05320_to_msa_col(q05320_mature, anchor_row)
     missing = [e.pos for e in watchlist if e.pos not in pos_to_col]
     if missing:
         print(f"mab-escape-report: warning — could not map positions to MSA columns: {missing[:10]}{'...' if len(missing)>10 else ''}")
@@ -355,8 +464,6 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
         species = _infer_species(sid + " " + (rec.description or ""))
         matrix[sid] = {}
         summ = IsolateSummary(seq_id=sid, species=species)
-        is_ref = sid == ref_id
-
         for ent in watchlist:
             col = pos_to_col.get(ent.pos)
             if col is None:
@@ -365,12 +472,12 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
             aa = row[col] if col < len(row) else "-"
             if aa == "-":
                 matrix[sid][ent.pos] = CellResult(aa="-", status="gap")
-                if not is_ref and ent.contact:
+                if ent.contact:
                     summ.n_changed += 1
                 continue
             aa = aa.upper()
             ref_aa = ent.zaire_aa.upper()
-            if is_ref or aa == ref_aa:
+            if aa == ref_aa:
                 matrix[sid][ent.pos] = CellResult(aa=aa, status="same")
                 continue
             label = _escape_label(ref_aa, ent.pos, aa, ent.proven_escape)
@@ -408,7 +515,7 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
             "mab-escape-report: excluded phylogeny outgroup(s): "
             + ", ".join(sorted(set(excluded_outgroups)))
         )
-    return ref_id, pos_to_col, matrix, summaries, excluded_outgroups
+    return anchor_id, pos_to_col, matrix, summaries, excluded_outgroups
 
 
 
@@ -421,12 +528,10 @@ def _has_change_in_scope(sid, matrix, watchlist, position_filter):
     return False
 
 
-def _changed_isolates(matrix, summaries, ref_id, watchlist, position_filter=None):
+def _changed_isolates(matrix, summaries, _anchor_id, watchlist, position_filter=None):
     pf = position_filter or (lambda e: True)
     result = []
     for sid in matrix:
-        if sid == ref_id:
-            continue
         if summaries[sid].n_changed == 0 and summaries[sid].n_escape_match == 0:
             continue
         if _has_change_in_scope(sid, matrix, watchlist, pf):
@@ -434,11 +539,8 @@ def _changed_isolates(matrix, summaries, ref_id, watchlist, position_filter=None
     return sorted(result, key=_accession)
 
 
-def _canonical_isolate_order(matrix: dict, ref_id: str) -> List[str]:
-    others = sorted([s for s in matrix if s != ref_id], key=_accession)
-    if ref_id in matrix:
-        return [ref_id] + others
-    return others
+def _canonical_isolate_order(matrix: dict, _anchor_id: str) -> List[str]:
+    return sorted(matrix.keys(), key=_accession)
 
 
 def _xlsx_sheet(ws, header: List[str], rows: List[List]) -> None:
@@ -460,9 +562,7 @@ def write_r_workbook(
 
     work_dir = _work_dir_from_aln(gp_aln_path)
     country_map = _load_country_map(work_dir)
-    contact_positions = [ent for ent in watchlist if ent.contact]
-    n_contact = len(contact_positions)
-    nonref = sorted([sid for sid in matrix if sid != ref_id], key=_accession)
+    nonref = sorted(matrix.keys(), key=_accession)
 
     cell_header = [
         "accession",
@@ -502,7 +602,7 @@ def write_r_workbook(
                 ent.REGN3471,
             ])
 
-    iso_header = [
+    iso_mab114_header = [
         "accession",
         "species",
         "country",
@@ -513,26 +613,56 @@ def write_r_workbook(
         "escape_matches",
         "max_grantham",
         "mAb114_concern",
+    ]
+    iso_regn_header = [
+        "accession",
+        "species",
+        "country",
+        "n_conserved_contact",
+        "n_contact_sites",
+        "pct_conserved_contact",
+        "epitope_changes",
+        "escape_matches",
+        "max_grantham",
+        "mAb3470_hits",
+        "mAb3471_hits",
+        "mAb3479_hits",
         "REGN_EB3_cocktail_concern",
     ]
-    iso_rows = []
+    iso_mab114_rows = []
+    iso_regn_rows = []
     for sid in nonref:
         summ = summaries[sid]
-        n_same = sum(
-            1 for ent in contact_positions if matrix[sid][ent.pos].status == "same"
-        )
-        pct = round(100 * n_same / n_contact, 1) if n_contact else ""
-        iso_rows.append([
+        country = _infer_country(sid, country_map)
+        st114 = _isolate_scope_stats(sid, matrix, watchlist, _scope_filter_mab114)
+        stregn = _isolate_scope_stats(sid, matrix, watchlist, _scope_filter_regn)
+        pct114 = round(100 * st114["n_same"] / st114["n_contact"], 1) if st114["n_contact"] else ""
+        pcregn = round(100 * stregn["n_same"] / stregn["n_contact"], 1) if stregn["n_contact"] else ""
+        iso_mab114_rows.append([
             _accession(sid),
             summ.species,
-            _infer_country(sid, country_map),
-            n_same,
-            n_contact,
-            pct,
-            summ.n_changed,
-            summ.n_escape_match,
-            summ.max_grantham,
+            country,
+            st114["n_same"],
+            st114["n_contact"],
+            pct114,
+            st114["n_changed"],
+            st114["n_escape"],
+            st114["max_grantham"],
             summ.mab114_concern,
+        ])
+        iso_regn_rows.append([
+            _accession(sid),
+            summ.species,
+            country,
+            stregn["n_same"],
+            stregn["n_contact"],
+            pcregn,
+            stregn["n_changed"],
+            stregn["n_escape"],
+            stregn["max_grantham"],
+            summ.regn3470_hits,
+            summ.regn3471_hits,
+            summ.regn3479_hits,
             summ.cocktail_concern,
         ])
 
@@ -548,8 +678,10 @@ def write_r_workbook(
     ws_cells = wb.active
     ws_cells.title = "epitope_cells"
     _xlsx_sheet(ws_cells, cell_header, cell_rows)
-    ws_iso = wb.create_sheet("isolates")
-    _xlsx_sheet(ws_iso, iso_header, iso_rows)
+    ws_mab114 = wb.create_sheet("isolates_mab114")
+    _xlsx_sheet(ws_mab114, iso_mab114_header, iso_mab114_rows)
+    ws_regn = wb.create_sheet("isolates_regn")
+    _xlsx_sheet(ws_regn, iso_regn_header, iso_regn_rows)
     ws_esc = wb.create_sheet("escape_catalog")
     _xlsx_sheet(ws_esc, esc_header, esc_rows)
     wb.save(path)
@@ -568,6 +700,24 @@ def _format_cell_html(c: CellResult) -> str:
         gs = f' <span class="gscore">({c.grantham})</span>' if c.grantham is not None else ""
         return f'<span class="mut">{label}</span>{gs}'
     return c.aa
+
+
+def _grantham_legend_html() -> str:
+    return """<div class="card">
+<h3>Grantham distance (numbers in brackets)</h3>
+<p>In epitope tables, changed residues are shown as <span class="mut">MUTATION</span><span class="gscore"> (score)</span>
+&mdash; for example <span class="mut">T144M</span><span class="gscore"> (110)</span>. The number in brackets is the
+<strong>Grantham amino acid difference index</strong> (Grantham, 1974) versus the reference baseline amino acid at that
+position. Scores run from <strong>0</strong> (identical) to about <strong>215</strong> (most dissimilar single-residue
+substitutions in the matrix). Higher scores mean a more radical biochemical change (size, charge, polarity).</p>
+<ul class="grantham-scale">
+<li><strong>0</strong> &mdash; identical to reference</li>
+<li><strong>1&ndash;50</strong> &mdash; conservative substitution (similar properties)</li>
+<li><strong>51&ndash;100</strong> &mdash; moderate difference</li>
+<li><strong>101&ndash;150</strong> &mdash; substantial difference</li>
+<li><strong>151&ndash;215</strong> &mdash; radical substitution (very dissimilar properties)</li>
+</ul>
+</div>"""
 
 
 
@@ -618,7 +768,7 @@ def _proven_escape_section(
     catalog = _collect_proven_escape_catalog(watchlist)
     if not catalog:
         return ""
-    isolates = sorted([sid for sid in matrix.keys() if sid != ref_id], key=_accession)
+    isolates = sorted(matrix.keys(), key=_accession)
     rows = []
     n_found_any = 0
     for item in catalog:
@@ -673,35 +823,64 @@ def _render_report_panel(
     metadata = metadata or {}
     ref_label = _reference_label(metadata)
     ref_col = f"{ref_label} aa"
-    contact_positions = [ent for ent in watchlist if ent.contact]
-    n_contact = len(contact_positions)
     all_changed = _changed_isolates(matrix, summaries, ref_id, watchlist)
-
-    sum_rows = []
-    for sid in sorted(matrix.keys(), key=_accession):
-        s = summaries[sid]
-        n_same_contact = sum(
-            1 for ent in contact_positions if matrix[sid][ent.pos].status == "same"
-        )
-        conserved_pct = int(round(100 * n_same_contact / n_contact)) if n_contact else 0
-        country = _infer_country(sid, country_map)
-        sum_rows.append(
-            f'<tr data-accession="{_accession(sid)}" data-species="{s.species}" data-country="{country}"'
-            f' data-conserved="{n_same_contact}" data-conserved-pct="{conserved_pct}"'
-            f' data-epitope-changes="{s.n_changed}" data-escape="{s.n_escape_match}"'
-            f' data-grantham="{s.max_grantham}"'
-            f' data-mab114-concern="{1 if s.mab114_concern else 0}"'
-            f' data-cocktail-concern="{1 if s.cocktail_concern else 0}">'
-            f"<td>{_accession(sid)}</td><td>{s.species}</td>"
-            f"<td>{country}</td>"
-            f"<td>{n_same_contact}/{n_contact} ({conserved_pct}%)</td>"
-            f"<td>{s.n_changed}</td><td>{s.n_escape_match}</td><td>{s.max_grantham}</td>"
-            f"<td>{_yes_no(s.mab114_concern)}</td>"
-            f"<td>{_yes_no(s.cocktail_concern)}</td></tr>"
-        )
+    mab114_table_id = f"{panel_prefix}-summary-mab114" if panel_prefix else "summary-mab114"
+    regn_table_id = f"{panel_prefix}-summary-regn" if panel_prefix else "summary-regn"
+    mab114_summary = _render_treatment_summary_table(
+        matrix,
+        summaries,
+        watchlist,
+        country_map,
+        mab114_table_id,
+        "Ebanga (mAb114 / ansuvimab)",
+        _scope_filter_mab114,
+        [
+            (
+                "Concern",
+                "concern",
+                "number",
+                lambda s, _st: (_yes_no(s.mab114_concern), 1 if s.mab114_concern else 0),
+            ),
+        ],
+    )
+    regn_summary = _render_treatment_summary_table(
+        matrix,
+        summaries,
+        watchlist,
+        country_map,
+        regn_table_id,
+        "Inmazeb (REGN-EB3: mAb3470 + mAb3471 + mAb3479)",
+        _scope_filter_regn,
+        [
+            (
+                "mAb3470 hits",
+                "m3470",
+                "number",
+                lambda s, _st: (s.regn3470_hits, s.regn3470_hits),
+            ),
+            (
+                "mAb3471 hits",
+                "m3471",
+                "number",
+                lambda s, _st: (s.regn3471_hits, s.regn3471_hits),
+            ),
+            (
+                "mAb3479 hits",
+                "m3479",
+                "number",
+                lambda s, _st: (s.regn3479_hits, s.regn3479_hits),
+            ),
+            (
+                "Cocktail concern (&ge;2 components)",
+                "cocktail-concern",
+                "number",
+                lambda s, _st: (_yes_no(s.cocktail_concern), 1 if s.cocktail_concern else 0),
+            ),
+        ],
+    )
 
     def analysis_isolates():
-        return sorted([sid for sid in matrix.keys() if sid != ref_id], key=_accession)
+        return sorted(matrix.keys(), key=_accession)
 
     def antibody_table(title: str, position_filter):
         positions = [ent for ent in watchlist if position_filter(ent)]
@@ -710,12 +889,9 @@ def _render_report_panel(
         slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
         table_id = f"{panel_prefix}-{slug}" if panel_prefix else slug
         isolates = _canonical_isolate_order(matrix, ref_id)
-        isolates = [s for s in isolates if s != ref_id]
-        changed_isolates = _changed_isolates(matrix, summaries, ref_id, watchlist, position_filter)
-        n_pos = len(positions)
-        unchanged_rows = changed_rows = 0
+        changed_rows = 0
         rows = []
-        for ent in positions:
+        for row_num, ent in enumerate(positions, start=1):
             row_max = row_has_change = 0
             for sid in isolates:
                 c = matrix[sid][ent.pos]
@@ -725,57 +901,51 @@ def _render_report_panel(
                     row_max = max(row_max, c.grantham)
             if row_has_change:
                 changed_rows += 1
-            else:
-                unchanged_rows += 1
-            tds = [f"<td>{ent.pos}</td>", f"<td>{ent.domain}</td>", f"<td>{ent.zaire_aa}</td>"]
+            tds = [
+                f"<td>{row_num}</td>",
+                f"<td>{ent.pos}</td>",
+                f"<td>{ent.domain}</td>",
+                f"<td>{ent.zaire_aa}</td>",
+            ]
             for sid in isolates:
                 c = matrix[sid][ent.pos]
                 g = c.grantham if c.grantham is not None else 0
                 tds.append(f'<td class="{_cell_class(c)}" data-grantham="{g}">{_format_cell_html(c)}</td>')
             conserved_attr = "" if row_has_change else ' class="conserved-row conserved-hidden"'
             rows.append(
-                f'<tr data-row-max-grantham="{row_max}"{conserved_attr}>'
+                f'<tr data-row-max-grantham="{row_max}" data-pos="{ent.pos}"{conserved_attr}>'
                 + "".join(tds)
                 + "</tr>"
             )
         headers = "".join(f"<th>{_accession(sid)}</th>" for sid in isolates)
-        conserved_pct = int(round(100 * unchanged_rows / n_pos)) if n_pos else 0
-        iso_note = (
-            f"{len(changed_isolates)} isolate(s) with &ge;1 change; "
-            f"{len(isolates) - len(changed_isolates)} fully conserved at these sites."
-        )
+        if changed_rows:
+            change_line = (
+                f"<p><strong>Epitope changes vs {ref_label}:</strong> "
+                f"{changed_rows} position(s) with &ge;1 change.</p>"
+            )
+        else:
+            change_line = (
+                f"<p><strong>Epitope changes vs {ref_label}:</strong> "
+                f"no changes at these watchlist sites.</p>"
+            )
         return f"""<h2>{title}</h2>
-<p><strong>Conservation vs {ref_label}:</strong> {unchanged_rows}/{n_pos} epitope positions unchanged in all isolates ({conserved_pct}%); {changed_rows} position(s) with &ge;1 change. {iso_note}</p>
+{change_line}
 <button type="button" class="toggle-conserved" data-table="{table_id}">Show conserved rows</button>
-<table class="epitope-table" id="{table_id}"><thead><tr><th>Pos</th><th>Domain</th><th>{ref_col}</th>{headers}</tr></thead>
+<table class="epitope-table" id="{table_id}"><thead><tr><th>#</th><th>Pos</th><th>Domain</th><th>{ref_col}</th>{headers}</tr></thead>
 <tbody>{"".join(rows)}</tbody></table>"""
 
     no_changes = ""
     if not all_changed:
         no_changes = f"<p><strong>All epitope positions match {ref_label}</strong> in this sequence set.</p>"
 
-    summary_table_id = f"{panel_prefix}-isolate-summary" if panel_prefix else "isolate-summary"
     parts = [
         '<div class="isolate-summary-block">',
         '<h2 class="isolate-summary-heading">Isolate summary '
         '<button type="button" class="toggle-isolate-summary" aria-expanded="false">'
         "Show isolate summary</button></h2>",
         '<div class="isolate-summary-body isolate-summary-collapsed">',
-        f"<p>Conserved contact sites = epitope contact positions identical to {ref_label} "
-        "(denominator matches epitope-changes scope). Click a column header to sort.</p>",
-        f'<table class="summary-table sortable-table" id="{summary_table_id}"><thead><tr>',
-        '<th class="sortable" data-sort-key="accession" data-sort-type="text">Accession</th>',
-        '<th class="sortable" data-sort-key="species" data-sort-type="text">Species</th>',
-        '<th class="sortable" data-sort-key="country" data-sort-type="text">Country</th>',
-        '<th class="sortable" data-sort-key="conserved" data-sort-type="number">Conserved contact sites</th>',
-        '<th class="sortable" data-sort-key="epitope-changes" data-sort-type="number">Epitope changes</th>',
-        '<th class="sortable" data-sort-key="escape" data-sort-type="number">Escape matches</th>',
-        '<th class="sortable" data-sort-key="grantham" data-sort-type="number">Max Grantham</th>',
-        '<th class="sortable" data-sort-key="mab114-concern" data-sort-type="number">mAb114 (Ebanga) concern</th>',
-        '<th class="sortable" data-sort-key="cocktail-concern" data-sort-type="number">REGN-EB3 cocktail concern</th>',
-        "</tr></thead><tbody>",
-        "".join(sum_rows) if sum_rows else '<tr><td colspan="9"><em>No isolates</em></td></tr>',
-        "</tbody></table>",
+        mab114_summary,
+        regn_summary,
         "</div></div>",
         no_changes,
         antibody_table("mAb114 (Ebanga / ansuvimab)", lambda e: e.mAb114),
@@ -802,13 +972,13 @@ def write_html(
 
     m_dl, s_dl = _cohort_subset(matrix, summaries, "downloaded")
     m_cs, s_cs = _cohort_subset(matrix, summaries, "consensus")
-    n_dl = len([k for k in m_dl if k != ref_id])
-    n_cs = len([k for k in m_cs if k != ref_id])
+    n_dl = len(m_dl)
+    n_cs = len(m_cs)
     has_tabs = n_cs > 0
 
     ref_label = _reference_label(metadata)
     print(
-        "mab-escape-report: comparison baseline %s (%s); alignment anchor %s"
+        "mab-escape-report: comparison baseline %s (%s); MSA coordinate anchor %s"
         % (ref_label, metadata.get("reference_accession", ""), _accession(ref_id))
     )
     panel_downloaded = _render_report_panel(
@@ -845,6 +1015,8 @@ h1 {{ font-size: 1.5rem; margin: 0 0 0.5rem; }}
 h2 {{ font-size: 1.15rem; margin-top: 1.75rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.25rem; }}
 .card {{ background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.15rem; margin: 1rem 0; box-shadow: 0 1px 2px rgba(0,0,0,.04); }}
 .card h3 {{ margin: 0 0 0.5rem; font-size: 1rem; color: var(--accent); }}
+.grantham-scale {{ margin: 0.35rem 0 0.65rem 1.15rem; font-size: 0.9rem; padding: 0; }}
+.grantham-scale li {{ margin: 0.2rem 0; }}
 .tabs {{ display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 1.25rem 0 0; }}
 .tab-btn {{ padding: 0.45rem 1rem; border: 1px solid var(--border); background: #fff; cursor: pointer; border-radius: 6px; font-size: 0.9rem; }}
 .tab-btn.active {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
@@ -863,6 +1035,7 @@ th {{ background: #e8ecf1; white-space: nowrap; }}
 .toggle-isolate-summary {{ margin-left: 0.5rem; padding: 0.3rem 0.65rem; font-size: 0.8rem; font-weight: normal; cursor: pointer; }}
 .isolate-summary-collapsed {{ display: none; }}
 .isolate-summary-heading {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }}
+.isolate-summary-body .summary-table + .summary-table {{ margin-top: 1.25rem; }}
 th.sortable {{ cursor: pointer; user-select: none; }}
 th.sortable:hover {{ background: #dce3eb; }}
 th.sortable.sorted-asc::after {{ content: " ▲"; font-size: 0.75em; }}
@@ -881,6 +1054,8 @@ th.sortable.sorted-desc::after {{ content: " ▼"; font-size: 0.75em; }}
 <p><strong>mAb114 vs mAb3471:</strong> epitope tables list only watchlist positions per antibody.
 Shared footprint: 112, 116, 118, 143, 144, 146, 270. Odesivimab additionally tracks 111, 272, 274&ndash;275 (I274M, W275L).</p>
 </div>
+
+{_grantham_legend_html()}
 
 <div class="controls">
 <label>Min Grantham (hide rows below): <input type="range" id="minGrantham" min="0" max="215" value="0" step="5"> <span id="minGranthamVal">0</span></label>
@@ -926,7 +1101,7 @@ Shared footprint: 112, 116, 118, 143, 144, 146, 270. Odesivimab additionally tra
     }} else if (sortSel.value === 'grantham-asc') {{
       rows.sort((a,b) => parseInt(a.dataset.rowMaxGrantham||0,10) - parseInt(b.dataset.rowMaxGrantham||0,10));
     }} else {{
-      rows.sort((a,b) => parseInt(a.cells[0].textContent,10) - parseInt(b.cells[0].textContent,10));
+      rows.sort((a,b) => parseInt(a.dataset.pos||0,10) - parseInt(b.dataset.pos||0,10));
     }}
     rows.forEach(r => tbody.appendChild(r));
   }}
