@@ -6,6 +6,7 @@ import os
 import re
 import datetime
 import time
+from urllib.error import HTTPError, URLError
 import argparse
 import shutil
 import tempfile
@@ -415,6 +416,86 @@ def _prepare_mab_escape_report(args):
         args.proteins = 'GP'
 
 
+def _installed_ebolaseq_module_path():
+    """Path to the ebolaseq.ebolaseq module actually imported by this Python."""
+    try:
+        import ebolaseq.ebolaseq as m
+        return os.path.abspath(m.__file__)
+    except Exception:
+        return os.path.abspath(__file__)
+
+
+def _find_ebolaseq_source_root():
+    """Locate a local ebolaseq checkout (pyproject.toml with name ebolaseq)."""
+    env = os.environ.get("EBOLASEQ_SOURCE")
+    if env:
+        root = os.path.abspath(env)
+        if os.path.isfile(os.path.join(root, "pyproject.toml")):
+            return root
+    candidates = [os.getcwd()]
+    here = os.path.dirname(os.path.abspath(__file__))
+    d = here
+    for _ in range(5):
+        candidates.append(d)
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    seen = set()
+    for start in candidates:
+        d = os.path.abspath(start)
+        if d in seen:
+            continue
+        seen.add(d)
+        for _ in range(8):
+            pj = os.path.join(d, "pyproject.toml")
+            if os.path.isfile(pj):
+                try:
+                    with open(pj, encoding="utf-8") as f:
+                        text = f.read()
+                    if 'name = "ebolaseq"' in text or "name = 'ebolaseq'" in text:
+                        return d
+                except OSError:
+                    pass
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+    return None
+
+
+def upgrade_installed_ebolaseq(editable=False):
+    """pip install --force-reinstall from local source (overwrites older site-packages)."""
+    root = _find_ebolaseq_source_root()
+    if not root:
+        print("Cannot find ebolaseq source directory.")
+        print("  cd into your ebolaseq clone, or: export EBOLASEQ_SOURCE=/path/to/ebolaseq")
+        sys.exit(1)
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall"]
+    if editable:
+        cmd.append("-e")
+    cmd.append(root)
+    print("Reinstalling ebolaseq (overwrites previous install in this environment):")
+    print("  %s" % " ".join(cmd))
+    subprocess.check_call(cmd)
+    print("Installed from: %s" % root)
+    print("Now using: %s" % _installed_ebolaseq_module_path())
+
+
+def _warn_if_stale_install():
+    installed = _installed_ebolaseq_module_path()
+    root = _find_ebolaseq_source_root()
+    if not root or not installed:
+        return
+    source_mod = os.path.join(root, "ebolaseq", "ebolaseq.py")
+    if os.path.isfile(source_mod) and os.path.getmtime(source_mod) > os.path.getmtime(installed):
+        print(
+            "Note: newer ebolaseq source at %s than the installed copy.\n"
+            "      Run: ebolaseq --upgrade   (from that directory, or set EBOLASEQ_SOURCE)"
+            % root
+        )
+
+
 def _run_mab_escape_report_if_ready(args):
     """Run GP mAb escape report when GP protein alignment exists."""
     gp_aln = os.path.join("Alignment", "MAFFT", "GP", "protein_aln.fasta")
@@ -436,8 +517,15 @@ def cli_main():
     )
     parser.add_argument('--version', action='version', version=f'ebolaseq {__version__}', help="show program's version number")
 
+    parser.add_argument('--upgrade', action='store_true',
+                        help='Reinstall ebolaseq from local source (overwrites older pip install in this env)')
+    parser.add_argument('--editable', action='store_true',
+                        help='With --upgrade: pip install -e (editable / development mode)')
+    parser.add_argument('--where', action='store_true',
+                        help='Print which ebolaseq.py is loaded and exit')
+
     req = parser.add_argument_group('Required')
-    req.add_argument('-o', '--output-dir', type=str, required=True, metavar='DIR',
+    req.add_argument('-o', '--output-dir', type=str, required=False, metavar='DIR',
                      help='Output directory for all results')
 
     opt = parser.add_argument_group('Optional — download filters (non-interactive)')
@@ -475,9 +563,33 @@ def cli_main():
                            help='GP mAb escape report (mAb114 / REGN-EB3); adds GP protein alignment if needed')
 
     opt_other = parser.add_argument_group('Optional — other')
+    opt_other.add_argument(
+        '--only',
+        action='store_true',
+        help='Consensus-only mode: skip downloading and run using only --c_z/--c_s/--c_r/--c_b/--c_t FASTA(s)',
+    )
     opt_other.add_argument('--remove', type=str, metavar='FILE', help='File listing sequence IDs/headers to exclude')
 
     args = parser.parse_args()
+
+    if args.where:
+        print("ebolaseq %s" % __version__)
+        print("Loaded from: %s" % _installed_ebolaseq_module_path())
+        root = _find_ebolaseq_source_root()
+        if root:
+            print("Local source: %s" % root)
+        return
+    if args.upgrade:
+        upgrade_installed_ebolaseq(editable=args.editable)
+        return
+    if not args.output_dir:
+        parser.error("the following arguments are required: -o/--output-dir")
+
+    # Track whether proteins were explicitly set on the CLI, because args.proteins can be
+    # auto-populated later (e.g. when enabling the mAb escape report).
+    args._proteins_explicit = ('--proteins' in sys.argv) or ('-pr' in sys.argv)
+
+    _warn_if_stale_install()
 
     args.output_dir = os.path.abspath(args.output_dir)
     if args.remove:
@@ -553,6 +665,121 @@ def main(args, non_interactive=False):
         '2': 'Non-human (all animal hosts)',
         '3': 'All hosts'
     }
+
+    # Consensus-only shortcut: no download, only user-provided consensus FASTA(s)
+    if getattr(args, 'only', False):
+        # In --only mode, we still allow an interactive "analysis wizard" (alignment/proteins/phylogeny/mAb report)
+        # unless the user explicitly provided those flags.
+        proteins_were_provided = getattr(args, '_proteins_explicit', False)
+        if args.alignment is None:
+            print("\nConsensus-only mode: choose analysis steps (no downloading).")
+            print("\nAlignment options:")
+            print("1. Whole-genome alignment")
+            print("2. Protein (CDS) alignment")
+            print("3. No alignment")
+            alignment_choice = input("\nSelect alignment (1-3, default 3): ").strip() or "3"
+            while alignment_choice not in ("1", "2", "3"):
+                print("Please enter 1, 2, or 3")
+                alignment_choice = input("Select alignment (1-3, default 3): ").strip() or "3"
+            args.alignment = alignment_choice
+
+        # Protein selection right after alignment=2 (before mAb report question).
+        if args.alignment == '2' and not proteins_were_provided:
+            print("\nSelect protein(s) to align (comma-separated; GP is added automatically if mAb report is enabled):")
+            print("1. L (RNA-dependent RNA polymerase)")
+            print("2. NP (nucleoprotein)")
+            print("3. VP35 (polymerase cofactor)")
+            print("4. VP40 (matrix protein)")
+            print("5. GP (spike glycoprotein, full)")
+            print("6. GP1 (spike GP1, receptor-binding)")
+            print("7. GP2 (spike GP2, fusion)")
+            print("8. VP30 (minor nucleoprotein)")
+            print("9. VP24 (membrane-associated protein)")
+            prot_in = input("\nSelect protein(s) (optional, e.g. 1,2; default L): ").strip() or "1"
+            args.proteins = prot_in
+
+        # mAb escape report (after protein choice when alignment=2).
+        if not getattr(args, 'mab_escape_report', False):
+            print("\nRun mAb escape epitope report (mAb114 / REGN-EB3)?")
+            print("1. Yes")
+            print("2. No")
+            mab_choice = input("\nSelect option (1-2, default 2): ").strip() or "2"
+            while mab_choice not in ("1", "2"):
+                print("Please enter 1 or 2")
+                mab_choice = input("Select option (1-2, default 2): ").strip() or "2"
+            args.mab_escape_report = (mab_choice == "1")
+
+        if getattr(args, 'mab_escape_report', False):
+            _prepare_mab_escape_report(args)
+
+        # Phylogeny prompt if not explicitly requested
+        if not getattr(args, 'phylogeny', False):
+            print("\nDo you want to build a phylogeny?")
+            print("1. Yes")
+            print("2. No")
+            phy_choice = input("\nSelect phylogeny option (1-2, default 2): ").strip() or "2"
+            while phy_choice not in ("1", "2"):
+                print("Please enter 1 or 2")
+                phy_choice = input("Select phylogeny option (1-2, default 2): ").strip() or "2"
+            args.phylogeny = (phy_choice == "1")
+
+        consensus_attrs = [
+            ('zaire', 'consensus_zaire'),
+            ('sudan', 'consensus_sudan'),
+            ('reston', 'consensus_reston'),
+            ('bundibugyo', 'consensus_bundibugyo'),
+            ('tai', 'consensus_tai'),
+        ]
+        provided = [(name, getattr(args, attr, None)) for name, attr in consensus_attrs]
+        provided = [(name, path) for name, path in provided if path]
+        if not provided:
+            print("Error: --only requires at least one consensus FASTA (--c_z/--c_s/--c_r/--c_b/--c_t).")
+            return
+
+        # Ensure defaults exist when user did not go through prompts (e.g. provided flags)
+        if args.alignment is None:
+            args.alignment = '3'
+        if args.alignment == '2' and not args.proteins:
+            args.proteins = 'L'
+        if not hasattr(args, 'mab_escape_report'):
+            args.mab_escape_report = False
+        if getattr(args, 'mab_escape_report', False):
+            _prepare_mab_escape_report(args)
+
+        os.makedirs("FASTA", exist_ok=True)
+        consensus_copied = []
+        for name, path in provided:
+            dst = copy_consensus_file(path, "FASTA", dest_name="consensus_%s.fasta" % name)
+            if dst:
+                consensus_copied.append(name)
+                add_species_refseq_to_fasta(name, "FASTA")
+            else:
+                print("Failed to copy consensus: %s" % path)
+        if not consensus_copied:
+            print("Error: no consensus FASTA could be copied; aborting.")
+            return
+        print("Consensus-only mode: using %d consensus FASTA file(s): %s" % (len(consensus_copied), ", ".join(consensus_copied)))
+
+        nthreads = getattr(args, 'threads', 1)
+        if nthreads <= 0:
+            nthreads = os.cpu_count() or 1
+
+        if args.alignment == '1':
+            if getattr(args, 'phylogeny', False):
+                print("\nStarting phylogenetic analysis (whole genome)...")
+                create_phylogenetic_tree("FASTA", threads=nthreads, outgroup_tip_id=None)
+                print("Phylogenetic analysis completed!")
+            else:
+                print("\nStarting whole-genome alignment...")
+                create_alignment_only("FASTA", threads=nthreads)
+                print("Alignment completed!")
+        elif args.alignment == '2':
+            run_protein_pipeline("FASTA", args.proteins, getattr(args, 'phylogeny', False), virus_choices=[], base_name="consensus_only", args=args)
+        else:
+            print("Consensus-only mode: no alignment selected (--alignment 3). FASTA/ contains only your consensus file(s).")
+            if getattr(args, 'mab_escape_report', False):
+                print("mab-escape-report requires protein alignment; set --alignment 2 (and optionally --proteins).")
+        return
     
     if non_interactive:
         choice = args.virus.strip().lower()
@@ -939,6 +1166,7 @@ def main(args, non_interactive=False):
                 dst = copy_consensus_file(path, "FASTA", dest_name="consensus_%s.fasta" % name)
                 if dst:
                     consensus_copied.append(name)
+                    add_species_refseq_to_fasta(name, "FASTA")
                 else:
                     print("Failed to copy consensus: %s" % path)
         if consensus_copied:
@@ -1039,7 +1267,23 @@ def download_sequences(virus_choices, genome_choice, host_choice, metadata_choic
 
     output_file = "downloaded_genomes.gb"
 
-    handle = Entrez.esearch(db="nucleotide", term=query, retmax=10000)
+    def _entrez_call(fn, **kwargs):
+        last_err = None
+        for attempt in range(1, 7):
+            try:
+                return fn(**kwargs)
+            except (HTTPError, URLError) as e:
+                last_err = e
+                code = getattr(e, "code", None)
+                if code in (429, 500, 502, 503, 504) or code is None:
+                    sleep_s = min(60, 2 ** attempt)
+                    print("NCBI request failed (%s); retrying in %ss (attempt %s/6)..." % (code, sleep_s, attempt))
+                    time.sleep(sleep_s)
+                    continue
+                raise
+        raise last_err
+
+    handle = _entrez_call(Entrez.esearch, db="nucleotide", term=query, retmax=10000)
     record = Entrez.read(handle)
     handle.close()
     id_list = record["IdList"]
@@ -1058,10 +1302,9 @@ def download_sequences(virus_choices, genome_choice, host_choice, metadata_choic
         for i in range(0, len(id_list), batch_size):
             batch = id_list[i:i + batch_size]
             print(f"Downloading batch {(i//batch_size)+1} of {n_batches}...")
-            fetch_handle = Entrez.efetch(db="nucleotide",
-                                         id=batch,
-                                         rettype="gb",
-                                         retmode="text")
+            fetch_handle = _entrez_call(
+                Entrez.efetch, db="nucleotide", id=batch, rettype="gb", retmode="text"
+            )
             out_handle.write(fetch_handle.read())
             fetch_handle.close()
             time.sleep(1)
@@ -1262,6 +1505,57 @@ def copy_consensus_file(consensus_file, fasta_dir, dest_name=None):
     print(f"Copied consensus: {filename}")
     return dst
 
+
+def add_species_refseq_to_fasta(species_key: str, fasta_dir: str):
+    """
+    Add the RefSeq reference sequence for the given species to FASTA/.
+
+    species_key: one of zaire/sudan/reston/bundibugyo/tai (tai maps to tai_forest).
+    Writes FASTA with normalized header "ACCESSION/ProcessingName/refseq" so downstream split-by-species works.
+    """
+    key_map = {
+        "zaire": "zaire",
+        "sudan": "sudan",
+        "reston": "reston",
+        "bundibugyo": "bundibugyo",
+        "tai": "tai_forest",
+        "tai_forest": "tai_forest",
+    }
+    proc_map = {
+        "zaire": "Zaire_ebolavirus",
+        "sudan": "Sudan_ebolavirus",
+        "reston": "Reston_ebolavirus",
+        "bundibugyo": "Bundibugyo_ebolavirus",
+        "tai_forest": "Tai_Forest_ebolavirus",
+    }
+    skey = key_map.get((species_key or "").strip().lower())
+    if not skey:
+        print("Warning: unknown species key for RefSeq: %s" % species_key)
+        return None
+    acc = REFSEQ_IDS_CDS.get(skey)
+    if not acc:
+        print("Warning: no RefSeq accession configured for %s" % skey)
+        return None
+
+    os.makedirs(fasta_dir, exist_ok=True)
+    out_name = "refseq_%s.fasta" % skey
+    out_path = os.path.join(fasta_dir, out_name)
+    if os.path.exists(out_path):
+        return out_path
+
+    fasta_txt = _fetch_refseq_cds(acc)
+    seq = "".join([ln.strip() for ln in fasta_txt.splitlines() if ln and not ln.startswith(">")]).upper()
+    if not seq:
+        print("Warning: empty RefSeq FASTA fetched for %s" % acc)
+        return None
+    header = "%s/%s/refseq" % (acc, proc_map[skey])
+    with open(out_path, "w") as f:
+        f.write(">%s\n" % header)
+        for i in range(0, len(seq), 80):
+            f.write(seq[i:i + 80] + "\n")
+    print("Added RefSeq: %s (%s)" % (out_name, acc))
+    return out_path
+
 def check_dependencies():
     """Check if required external tools are available"""
     dependencies = ['mafft', 'trimal', 'iqtree2']
@@ -1275,6 +1569,19 @@ def check_dependencies():
         print(f"Error: Missing required tools: {', '.join(missing)}")
         print("Please install these tools and ensure they are in your PATH")
         sys.exit(1)
+
+
+def iqtree_phylogeny_argv(alignment_path, threads, outgroup_tip_id=None):
+    """IQ-TREE2 argv for ebolaseq phylogeny: MFP, UFBoot, --polytomy (collapse near-zero branches)."""
+    iqtree_nt = "AUTO" if (threads <= 0) else str(threads)
+    argv = [
+        "iqtree2", "-s", alignment_path, "-m", "MFP", "-bb", "10000",
+        "--polytomy", "-nt", iqtree_nt,
+    ]
+    if outgroup_tip_id:
+        argv.extend(["-o", outgroup_tip_id.replace("'", "")])
+    return argv
+
 
 def check_alignment_dependencies():
     """Check if required external tools are available for alignment only"""
@@ -1467,17 +1774,19 @@ def _translate_cds_fasta(cds_path, protein_path):
         SeqIO.write(proteins, f, "fasta")
 
 def _parse_pal2nal_failed_id(err):
-    """Parse PAL2NAL stderr/stdout for 'inconsistency' error; return sequence ID from first '>ID' or None."""
-    if not err or "inconsistency" not in err.lower():
+    """Parse PAL2NAL stderr/stdout for a sequence ID; return first '>ID' or None."""
+    if not err:
         return None
     for line in err.splitlines():
         s = line.strip()
         if s.startswith(">"):
             return s[1:].strip()
-    # Fallback: any ">ID" in message (e.g. wrapped or different formatting)
     m = re.search(r">\s*([^\s\n\r>]+)", err)
     if m:
         return m.group(1).strip()
+    m2 = re.search(r"\b(zaire|sudan|bundibugyo|reston|tai)[|][^\s\n\r>]+", err, flags=re.IGNORECASE)
+    if m2:
+        return m2.group(0).strip()
     return None
 
 def _backtranslate_pal2nal(protein_aln_path, cds_path, out_path):
@@ -1685,9 +1994,13 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
                 if exclude_for_pal2nal:
                     print("  %s: excluded %d sequence(s) with pep/nuc inconsistency, alignment has %d." % (protein, len(exclude_for_pal2nal), len(list(SeqIO.parse(cds_aligned, "fasta")))))
                 break
-            if failed_id and protein == "GP":
+            if not failed_id and err:
+                failed_id = _parse_pal2nal_failed_id(err)
+            if failed_id:
                 exclude_for_pal2nal.add(failed_id)
-                print("  GP: excluding sequence with pep/nuc inconsistency, retrying without: %s" % (failed_id[:80] + ("..." if len(failed_id) > 80 else "")))
+                print("  %s: excluding sequence with pep/nuc inconsistency, retrying without: %s" % (
+                    protein, (failed_id[:80] + ("..." if len(failed_id) > 80 else "")),
+                ))
                 continue
             print("PAL2NAL failed for %s: %s" % (protein, (err or "unknown")[:500]))
             break
@@ -1906,9 +2219,10 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
             shutil.copy2(src, dest)
             cwd = os.getcwd()
             os.chdir(protdir)
-            iqtree_nt = "AUTO" if (nthreads <= 0) else str(nthreads)
-            r = subprocess.run(["iqtree2", "-s", "cds_aligned.fasta", "-m", "MFP", "-bb", "10000", "-nt", iqtree_nt],
-                               shell=False, stderr=subprocess.PIPE, text=True)
+            r = subprocess.run(
+                iqtree_phylogeny_argv("cds_aligned.fasta", nthreads),
+                shell=False, stderr=subprocess.PIPE, text=True,
+            )
             os.chdir(cwd)
             if r.returncode != 0:
                 print("IQTree2 failed for %s: %s" % (protein, r.stderr))
@@ -2010,14 +2324,12 @@ def create_phylogenetic_tree(source_fasta_dir, threads=1, outgroup_tip_id=None):
         print("Running IQTree2 in Phylogeny/...")
         current_dir = os.getcwd()
         os.chdir(phylogeny_dir)
-        iqtree_nt = "AUTO" if (threads <= 0) else str(threads)
-        iqtree_cmd = f"iqtree2 -s Ebola_trimmed.fasta -m MFP -bb 10000 -nt {iqtree_nt}"
         if outgroup_tip_id:
-            # Match tip label in alignment (quote for special characters in header)
-            safe_o = outgroup_tip_id.replace("'", "")
-            iqtree_cmd += f" -o '{safe_o}'"
             print(f"IQ-TREE rooting on outgroup tip: {outgroup_tip_id}")
-        result = subprocess.run(iqtree_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            iqtree_phylogeny_argv("Ebola_trimmed.fasta", threads, outgroup_tip_id),
+            shell=False, stderr=subprocess.PIPE, text=True,
+        )
         os.chdir(current_dir)
         if result.returncode != 0:
             print(f"Error during IQTree2: {result.stderr}")

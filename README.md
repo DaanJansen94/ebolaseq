@@ -32,6 +32,9 @@ conda activate ebolaseq
 git clone https://github.com/DaanJansen94/ebolaseq.git
 cd ebolaseq
 pip install .
+
+# After `git pull`: overwrite old install (ensure correct version):
+ebolaseq --upgrade
 ```
 
 ## Usage
@@ -122,6 +125,8 @@ EbolaSeq can be run in two modes:
 
 **`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for mAb114 (Ebanga) and REGN-EB3 (Inmazeb), using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
 
+**`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t` FASTA(s).
+
 **`--remove`** — Path to file listing sequence IDs/headers to exclude
 
 ### Examples
@@ -137,6 +142,9 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 3 --alignment 1
 ebolaseq -o my_analysis --virus 6 --genome 1 --host 3 --metadata 4 \
   --c_z consensus_zaire.fasta --c_s consensus_sudan.fasta \
   --alignment 2 -pr L,NP --phylogeny
+
+# Consensus-only: no download, just analyze your own FASTA(s)
+ebolaseq -o my_analysis --only --c_b consensus_bundibugyo.fasta --alignment 2 -pr GP --mab-escape-report
 
 # Exclude specific sequences
 ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove exclude.txt
@@ -167,7 +175,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 If you use EbolaSeq in your research, please cite:
 
 ```
-Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.1.8). Zenodo. https://doi.org/10.5281/zenodo.14851686
+Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.2.0). Zenodo. https://doi.org/10.5281/zenodo.14851686
 ```
 
 ## License
