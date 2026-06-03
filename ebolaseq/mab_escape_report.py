@@ -350,19 +350,42 @@ def _render_treatment_summary_table(
 </tr></thead><tbody>{body}</tbody></table>"""
 
 
-def _render_treatment_section(section_id: str, heading: str, body_html: str, collapsed: bool = True) -> str:
-    """Collapsible block per therapeutic (Ebanga / Inmazeb / MBP134)."""
+def _render_collapsible_section(
+    section_id: str,
+    heading: str,
+    body_html: str,
+    collapsed: bool = True,
+    show_label: str = "Show",
+    hide_label: str = "Hide",
+) -> str:
     body_class = " treatment-collapsed" if collapsed else ""
     expanded = "false" if collapsed else "true"
-    btn_label = "Show results" if collapsed else "Hide results"
+    btn_label = show_label if collapsed else hide_label
     return (
         f'<div class="treatment-section" id="{section_id}">'
         f'<h2 class="treatment-heading">{heading} '
         f'<button type="button" class="toggle-treatment" aria-expanded="{expanded}" '
-        f'aria-controls="{section_id}-body">{btn_label}</button></h2>'
+        f'aria-controls="{section_id}-body" data-show-label="{show_label}" '
+        f'data-hide-label="{hide_label}">{btn_label}</button></h2>'
         f'<div class="treatment-body{body_class}" id="{section_id}-body">{body_html}</div>'
         "</div>"
     )
+
+
+def _render_treatment_section(section_id: str, heading: str, body_html: str, collapsed: bool = True) -> str:
+    """Collapsible block per therapeutic (Ebanga / Inmazeb / MBP134)."""
+    return _render_collapsible_section(
+        section_id, heading, body_html, collapsed, show_label="Show results", hide_label="Hide results"
+    )
+
+
+def _therapies_intro_html() -> str:
+    return """<div class="card">
+<p><strong>Ebanga (ansuvimab)</strong> &mdash; single monoclonal antibody <strong>mAb114</strong>.</p>
+<p><strong>Inmazeb (REGN-EB3)</strong> &mdash; <strong>cocktail of three</strong> monoclonal antibodies:
+<strong>mAb3470</strong> (atoltivimab), <strong>mAb3471</strong> (odesivimab), and <strong>mAb3479</strong> (maftivimab).</p>
+<p><strong>MBP134 / MBP134AF</strong> &mdash; cocktail of <strong>ADI-15878</strong> and <strong>ADI-23774</strong>.</p>
+</div>"""
 
 
 def find_alignment_anchor_id(records, metadata: dict) -> str:
@@ -564,6 +587,7 @@ def write_r_workbook(
     ref_id: str,
     matrix: dict,
     summaries: dict,
+    metadata: Optional[dict] = None,
 ) -> str:
     """One Excel file (tabs) with tables needed for R figures."""
     from openpyxl import Workbook
@@ -749,7 +773,7 @@ def write_r_workbook(
             iso_regn_rows_consensus.append(rowregn)
             iso_mbp134_rows_consensus.append(rowmbp)
 
-    catalog = _collect_proven_escape_catalog(watchlist)
+    catalog = _collect_proven_escape_catalog(watchlist, metadata)
     esc_header = ["mutation", "pos", "in_dataset", "n_isolates"]
     esc_rows = []
     for item in catalog:
@@ -805,7 +829,6 @@ def _format_cell_html(c: CellResult) -> str:
 
 def _grantham_legend_html() -> str:
     return """<div class="card">
-<h3>Grantham distance (numbers in brackets)</h3>
 <p>In epitope tables, changed residues are shown as <span class="mut">MUTATION</span><span class="gscore"> (score)</span>
 &mdash; for example <span class="mut">T144M</span><span class="gscore"> (110)</span>. The number in brackets is the
 <strong>Grantham amino acid difference index</strong> (Grantham, 1974) versus the reference baseline amino acid at that
@@ -823,8 +846,41 @@ substitutions in the matrix). Higher scores mean a more radical biochemical chan
 
 
 
-def _collect_proven_escape_catalog(watchlist: List[PositionEntry]) -> List[dict]:
+def _escape_linked_mabs(label: str, watchlist: List[PositionEntry], escape_mab_map: dict) -> List[str]:
+    """Map escape mutation to mAb names; escape_mab_map overrides shared epitope positions."""
+    key_map = {
+        "mAb114": "mAb114",
+        "REGN3470": "mAb3470",
+        "REGN3471": "mAb3471",
+        "REGN3479": "mAb3479",
+        "ADI15878": "ADI-15878",
+        "ADI23774": "ADI-23774",
+    }
+    if label in escape_mab_map:
+        return [key_map[k] for k in escape_mab_map[label] if k in key_map]
+    mabs: List[str] = []
+    for e in watchlist:
+        if label not in e.proven_escape:
+            continue
+        if e.mAb114 and "mAb114" not in mabs:
+            mabs.append("mAb114")
+        if e.REGN3470 and "mAb3470" not in mabs:
+            mabs.append("mAb3470")
+        if e.REGN3471 and "mAb3471" not in mabs:
+            mabs.append("mAb3471")
+        if e.REGN3479 and "mAb3479" not in mabs:
+            mabs.append("mAb3479")
+        if e.ADI15878 and "ADI-15878" not in mabs:
+            mabs.append("ADI-15878")
+        if e.ADI23774 and "ADI-23774" not in mabs:
+            mabs.append("ADI-23774")
+    return mabs
+
+
+def _collect_proven_escape_catalog(watchlist: List[PositionEntry], metadata: Optional[dict] = None) -> List[dict]:
     """Unique published escape mutations from watchlist with linked antibodies."""
+    metadata = metadata or {}
+    escape_mab_map = metadata.get("escape_mab_map", {})
     seen: Set[str] = set()
     items: List[dict] = []
     for ent in watchlist:
@@ -832,22 +888,7 @@ def _collect_proven_escape_catalog(watchlist: List[PositionEntry]) -> List[dict]
             if lab in seen:
                 continue
             seen.add(lab)
-            mabs: List[str] = []
-            for e in watchlist:
-                if lab not in e.proven_escape:
-                    continue
-                if e.mAb114 and "mAb114" not in mabs:
-                    mabs.append("mAb114")
-                if e.REGN3470 and "mAb3470" not in mabs:
-                    mabs.append("mAb3470")
-                if e.REGN3471 and "mAb3471" not in mabs:
-                    mabs.append("mAb3471")
-                if e.REGN3479 and "mAb3479" not in mabs:
-                    mabs.append("mAb3479")
-                if e.ADI15878 and "ADI-15878" not in mabs:
-                    mabs.append("ADI-15878")
-                if e.ADI23774 and "ADI-23774" not in mabs:
-                    mabs.append("ADI-23774")
+            mabs = _escape_linked_mabs(lab, watchlist, escape_mab_map)
             products: List[str] = []
             if "mAb114" in mabs:
                 products.append("Ebanga")
@@ -878,7 +919,7 @@ def _isolates_with_escape(matrix: dict, pos: int, label: str, isolates: List[str
 def _proven_escape_section(
     matrix: dict, ref_id: str, watchlist: List[PositionEntry], metadata: Optional[dict] = None
 ) -> str:
-    catalog = _collect_proven_escape_catalog(watchlist)
+    catalog = _collect_proven_escape_catalog(watchlist, metadata)
     if not catalog:
         return ""
     isolates = sorted(matrix.keys(), key=_accession)
@@ -1289,15 +1330,9 @@ th.sortable.sorted-desc::after {{ content: " ▼"; font-size: 0.75em; }}
 <h1>GP mAb escape epitope report</h1>
 <p><strong>In silico only</strong> &mdash; not proof of neutralization.</p>
 
-<div class="card">
-<h3>Approved therapies in this report</h3>
-<p><strong>Ebanga (ansuvimab)</strong> &mdash; single monoclonal antibody <strong>mAb114</strong>.</p>
-<p><strong>Inmazeb (REGN-EB3)</strong> &mdash; <strong>cocktail of three</strong> monoclonal antibodies:
-<strong>mAb3470</strong> (atoltivimab), <strong>mAb3471</strong> (odesivimab), and <strong>mAb3479</strong> (maftivimab).</p>
-<p><strong>MBP134 / MBP134AF</strong> &mdash; cocktail of <strong>ADI-15878</strong> and <strong>ADI-23774</strong>.</p>
-</div>
+{_render_collapsible_section("intro-therapies", "Therapies in this report", _therapies_intro_html())}
 
-{_grantham_legend_html()}
+{_render_collapsible_section("intro-grantham", "Grantham distance (numbers in brackets)", _grantham_legend_html())}
 
 <div class="controls">
 <label>Min Grantham (hide rows below): <input type="range" id="minGrantham" min="0" max="215" value="0" step="5"> <span id="minGranthamVal">0</span></label>
@@ -1377,7 +1412,9 @@ th.sortable.sorted-desc::after {{ content: " ▼"; font-size: 0.75em; }}
       if (!body) return;
       const collapsed = body.classList.toggle('treatment-collapsed');
       btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      btn.textContent = collapsed ? 'Show results' : 'Hide results';
+      const showLabel = btn.getAttribute('data-show-label') || 'Show results';
+      const hideLabel = btn.getAttribute('data-hide-label') || 'Hide results';
+      btn.textContent = collapsed ? showLabel : hideLabel;
       if (!collapsed) {{
         const panel = body.closest('.tab-panel') || document;
         panel.querySelectorAll('table.epitope-table').forEach(tbl => {{
@@ -1445,7 +1482,7 @@ def run_mab_escape_report(gp_aln_path: str, output_dir: str = "Escape", watchlis
     html_path = os.path.join(output_dir, "gp_mab_escape_report.html")
     write_html(html_path, gp_aln_path, metadata, watchlist, ref_id, matrix, summaries, excluded)
     xlsx_path = write_r_workbook(
-        output_dir, gp_aln_path, watchlist, ref_id, matrix, summaries
+        output_dir, gp_aln_path, watchlist, ref_id, matrix, summaries, metadata
     )
     print(f"mab-escape-report: wrote {html_path}")
     print(f"mab-escape-report: wrote {xlsx_path}")

@@ -18,7 +18,21 @@
       "Murin et al., Cell Rep 2018 (ADI-15878)",
       "Bornholdt et al., Nat Struct Mol Biol 2019 (ADI-15946 / ADI-23774)",
       "Wec et al., Cell Host Microbe 2019 (MBP134)"
-    ]
+    ],
+    "escape_mab_map": {
+      "P116H": ["mAb114", "REGN3471"],
+      "G118E": ["mAb114", "REGN3471"],
+      "G118R": ["mAb114", "REGN3471"],
+      "T144M": ["mAb114", "REGN3471"],
+      "I274M": ["REGN3471"],
+      "W275L": ["REGN3471"],
+      "G528R": ["REGN3479"],
+      "N563Y": ["REGN3479"],
+      "G528E": ["ADI15878"],
+      "G528S": ["ADI15878"],
+      "K510E": ["ADI23774"],
+      "W291R": ["ADI23774"]
+    }
   },
   "positions": [
     {
@@ -504,7 +518,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": [],
+      "proven_escape": [
+        "W291R"
+      ],
       "ADI15878": false,
       "ADI23774": true
     },
