@@ -1,6 +1,6 @@
 # EbolaSeq
 
-EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees. It also includes in silico screening of GP epitope changes relevant to approved monoclonal antibody therapies mAb114 (Ebanga / ansuvimab) and REGN-EB3 (Inmazeb; Regeneron) via the optional mAb escape report.
+EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees. It also includes in silico screening of GP epitope changes relevant to mAb114 (Ebanga / ansuvimab), REGN-EB3 (Inmazeb), and MBP134 (ADI-15878 + ADI-23774) via the optional mAb escape report.
 
 ## Installation
 
@@ -123,7 +123,7 @@ EbolaSeq can be run in two modes:
 
 **`-t`, `--threads`** — Threads for minimap2 and MAFFT (default 1). E.g. `-t 64` on a 64-core node. 0 = use all CPUs.
 
-**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for mAb114 (Ebanga) and REGN-EB3 (Inmazeb), using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
+**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134, using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
 
 **`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t` FASTA(s).
 

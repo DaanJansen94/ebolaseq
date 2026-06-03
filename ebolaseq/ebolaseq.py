@@ -560,7 +560,7 @@ def cli_main():
     opt_align.add_argument('-t', '--threads', type=int, default=1, metavar='N',
                            help='Threads for minimap2, MAFFT, and IQTree2 (default: 1). E.g. -t 64 on a 64-core node. 0 = use all CPUs.')
     opt_align.add_argument('--mab-escape-report', action='store_true',
-                           help='GP mAb escape report (mAb114 / REGN-EB3); adds GP protein alignment if needed')
+                           help='GP mAb escape report (Ebanga, Inmazeb, MBP134); adds GP protein alignment if needed')
 
     opt_other = parser.add_argument_group('Optional — other')
     opt_other.add_argument(
@@ -700,7 +700,7 @@ def main(args, non_interactive=False):
 
         # mAb escape report (after protein choice when alignment=2).
         if not getattr(args, 'mab_escape_report', False):
-            print("\nRun mAb escape epitope report (mAb114 / REGN-EB3)?")
+            print("\nRun mAb escape epitope report (Ebanga / Inmazeb / MBP134)?")
             print("1. Yes")
             print("2. No")
             mab_choice = input("\nSelect option (1-2, default 2): ").strip() or "2"
@@ -866,7 +866,7 @@ def main(args, non_interactive=False):
 
         # mAb escape report first (sets alignment / GP needs for later prompts)
         args.mab_escape_report = False
-        print("\nRun mAb escape epitope report (mAb114 / REGN-EB3)?")
+        print("\nRun mAb escape epitope report (Ebanga / Inmazeb / MBP134)?")
         print("1. Yes")
         print("2. No")
         escape_choice = input("\nSelect option (1-2): ").strip()

@@ -14,7 +14,10 @@
     "coordinate_uniprot": "Q05320",
     "citations": [
       "Misasi et al., Science 2016 (mAb114)",
-      "Rayaprolu et al., Cell Host Microbe 2023 (REGN-EB3)"
+      "Rayaprolu et al., Cell Host Microbe 2023 (REGN-EB3)",
+      "Murin et al., Cell Rep 2018 (ADI-15878)",
+      "Bornholdt et al., Nat Struct Mol Biol 2019 (ADI-15946 / ADI-23774)",
+      "Wec et al., Cell Host Microbe 2019 (MBP134)"
     ]
   },
   "positions": [
@@ -28,7 +31,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 43,
@@ -40,7 +45,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 45,
@@ -51,6 +58,92 @@
       "REGN3470": false,
       "REGN3471": false,
       "REGN3479": true,
+      "contact": true,
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
+    },
+    {
+      "pos": 47,
+      "domain": "GP1",
+      "region": "GP1 base, 2nd protomer",
+      "zaire_aa": "D",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": true,
+      "ADI23774": false,
+      "contact": true,
+      "proven_escape": []
+    },
+    {
+      "pos": 71,
+      "domain": "GP1",
+      "region": "GP1 base / 310 helix (310 pocket)",
+      "zaire_aa": "E",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": false,
+      "ADI23774": true,
+      "contact": true,
+      "proven_escape": []
+    },
+    {
+      "pos": 72,
+      "domain": "GP1",
+      "region": "GP1 base / 310 helix (310 pocket)",
+      "zaire_aa": "G",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": false,
+      "ADI23774": true,
+      "contact": true,
+      "proven_escape": []
+    },
+    {
+      "pos": 73,
+      "domain": "GP1",
+      "region": "GP1 base / 310 helix (310 pocket)",
+      "zaire_aa": "N",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": false,
+      "ADI23774": true,
+      "contact": true,
+      "proven_escape": []
+    },
+    {
+      "pos": 74,
+      "domain": "GP1",
+      "region": "GP1 base / 310 helix (310 pocket)",
+      "zaire_aa": "G",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": false,
+      "ADI23774": true,
+      "contact": true,
+      "proven_escape": []
+    },
+    {
+      "pos": 75,
+      "domain": "GP1",
+      "region": "GP1 base / 310 helix (310 pocket)",
+      "zaire_aa": "V",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": false,
+      "ADI23774": true,
       "contact": true,
       "proven_escape": []
     },
@@ -64,7 +157,9 @@
       "REGN3471": true,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 112,
@@ -76,7 +171,9 @@
       "REGN3471": true,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 116,
@@ -90,7 +187,9 @@
       "contact": true,
       "proven_escape": [
         "P116H"
-      ]
+      ],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 118,
@@ -105,7 +204,9 @@
       "proven_escape": [
         "G118E",
         "G118R"
-      ]
+      ],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 143,
@@ -117,7 +218,9 @@
       "REGN3471": true,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 144,
@@ -131,7 +234,9 @@
       "contact": true,
       "proven_escape": [
         "T144M"
-      ]
+      ],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 146,
@@ -143,7 +248,9 @@
       "REGN3471": true,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 270,
@@ -155,7 +262,9 @@
       "REGN3471": true,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 272,
@@ -167,7 +276,9 @@
       "REGN3471": true,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 274,
@@ -181,7 +292,9 @@
       "contact": true,
       "proven_escape": [
         "I274M"
-      ]
+      ],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 275,
@@ -195,7 +308,9 @@
       "contact": true,
       "proven_escape": [
         "W275L"
-      ]
+      ],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 278,
@@ -207,7 +322,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 279,
@@ -219,7 +336,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 280,
@@ -231,7 +350,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 281,
@@ -243,7 +364,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 282,
@@ -255,7 +378,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 283,
@@ -267,7 +392,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 284,
@@ -279,7 +406,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 285,
@@ -291,7 +420,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 286,
@@ -303,7 +434,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 287,
@@ -315,7 +448,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": true
     },
     {
       "pos": 288,
@@ -327,7 +462,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": true
     },
     {
       "pos": 289,
@@ -339,7 +476,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": true
     },
     {
       "pos": 290,
@@ -351,7 +490,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": true
     },
     {
       "pos": 291,
@@ -363,7 +504,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": true
     },
     {
       "pos": 292,
@@ -375,7 +518,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": true
     },
     {
       "pos": 293,
@@ -387,7 +532,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 294,
@@ -399,7 +546,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 295,
@@ -411,7 +560,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 296,
@@ -423,7 +574,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 297,
@@ -435,7 +588,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 298,
@@ -447,7 +602,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 299,
@@ -459,7 +616,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 300,
@@ -471,7 +630,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 301,
@@ -483,7 +644,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 302,
@@ -495,7 +658,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 303,
@@ -507,7 +672,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 304,
@@ -519,7 +686,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 305,
@@ -531,7 +700,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 306,
@@ -543,7 +714,9 @@
       "REGN3471": false,
       "REGN3479": false,
       "contact": false,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": false,
+      "ADI23774": false
     },
     {
       "pos": 504,
@@ -555,7 +728,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 505,
@@ -567,7 +742,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 506,
@@ -579,7 +756,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 507,
@@ -591,7 +770,25 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
+    },
+    {
+      "pos": 510,
+      "domain": "GP2",
+      "region": "GP2 N-terminus / 310 pocket interface",
+      "zaire_aa": "K",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": false,
+      "ADI23774": true,
+      "contact": true,
+      "proven_escape": [
+        "K510E"
+      ]
     },
     {
       "pos": 527,
@@ -603,7 +800,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 528,
@@ -616,8 +815,12 @@
       "REGN3479": true,
       "contact": true,
       "proven_escape": [
-        "G528R"
-      ]
+        "G528E",
+        "G528R",
+        "G528S"
+      ],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 529,
@@ -629,7 +832,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 530,
@@ -641,7 +846,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 535,
@@ -653,7 +860,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 536,
@@ -664,6 +873,36 @@
       "REGN3470": false,
       "REGN3471": false,
       "REGN3479": true,
+      "contact": true,
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
+    },
+    {
+      "pos": 537,
+      "domain": "GP2",
+      "region": "IFL, adjacent protomer",
+      "zaire_aa": "P",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": true,
+      "ADI23774": false,
+      "contact": true,
+      "proven_escape": []
+    },
+    {
+      "pos": 559,
+      "domain": "GP2",
+      "region": "HR1, adjacent protomer",
+      "zaire_aa": "R",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": true,
+      "ADI23774": false,
       "contact": true,
       "proven_escape": []
     },
@@ -676,6 +915,22 @@
       "REGN3470": false,
       "REGN3471": false,
       "REGN3479": true,
+      "contact": true,
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
+    },
+    {
+      "pos": 561,
+      "domain": "GP2",
+      "region": "HR1, adjacent protomer",
+      "zaire_aa": "L",
+      "mAb114": false,
+      "REGN3470": false,
+      "REGN3471": false,
+      "REGN3479": false,
+      "ADI15878": true,
+      "ADI23774": false,
       "contact": true,
       "proven_escape": []
     },
@@ -691,7 +946,9 @@
       "contact": true,
       "proven_escape": [
         "N563Y"
-      ]
+      ],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 564,
@@ -703,7 +960,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     },
     {
       "pos": 567,
@@ -715,7 +974,9 @@
       "REGN3471": false,
       "REGN3479": true,
       "contact": true,
-      "proven_escape": []
+      "proven_escape": [],
+      "ADI15878": true,
+      "ADI23774": false
     }
   ]
 }

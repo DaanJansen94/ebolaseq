@@ -23,6 +23,8 @@ class PositionEntry:
     REGN3470: bool
     REGN3471: bool
     REGN3479: bool
+    ADI15878: bool
+    ADI23774: bool
     contact: bool
     proven_escape: List[str]
 
@@ -48,6 +50,9 @@ class IsolateSummary:
     regn3470_hits: int = 0
     regn3471_hits: int = 0
     regn3479_hits: int = 0
+    adi15878_hits: int = 0
+    adi23774_hits: int = 0
+    mbp134_concern: bool = False
     max_grantham: int = 0
 
 
@@ -103,7 +108,8 @@ def load_watchlist(path: Optional[str] = None) -> Tuple[dict, List[PositionEntry
         PositionEntry(
             pos=e["pos"], domain=e["domain"], region=e["region"], zaire_aa=e["zaire_aa"],
             mAb114=e["mAb114"], REGN3470=e["REGN3470"], REGN3471=e["REGN3471"],
-            REGN3479=e["REGN3479"], contact=e["contact"], proven_escape=list(e.get("proven_escape", [])),
+            REGN3479=e["REGN3479"], ADI15878=e["ADI15878"], ADI23774=e["ADI23774"],
+            contact=e["contact"], proven_escape=list(e.get("proven_escape", [])),
         )
         for e in data["positions"]
     ]
@@ -243,6 +249,18 @@ def _scope_filter_regn(ent: PositionEntry) -> bool:
     return ent.REGN3470 or ent.REGN3471 or ent.REGN3479
 
 
+def _scope_filter_adi15878(ent: PositionEntry) -> bool:
+    return ent.ADI15878
+
+
+def _scope_filter_adi23774(ent: PositionEntry) -> bool:
+    return ent.ADI23774
+
+
+def _scope_filter_mbp134(ent: PositionEntry) -> bool:
+    return ent.ADI15878 or ent.ADI23774
+
+
 def _isolate_scope_stats(
     sid: str,
     matrix: dict,
@@ -286,7 +304,6 @@ def _render_treatment_summary_table(
     matrix: dict,
     summaries: dict,
     watchlist: List[PositionEntry],
-    country_map: Dict[str, str],
     table_id: str,
     title: str,
     scope_filter: Callable[[PositionEntry], bool],
@@ -296,7 +313,6 @@ def _render_treatment_summary_table(
     head_cells = [
         '<th class="sortable" data-sort-key="accession" data-sort-type="text">Accession</th>',
         '<th class="sortable" data-sort-key="species" data-sort-type="text">Species</th>',
-        '<th class="sortable" data-sort-key="country" data-sort-type="text">Country</th>',
         '<th class="sortable" data-sort-key="conserved" data-sort-type="number">Conserved contact sites</th>',
         '<th class="sortable" data-sort-key="epitope-changes" data-sort-type="number">Epitope changes</th>',
         '<th class="sortable" data-sort-key="escape" data-sort-type="number">Escape matches</th>',
@@ -307,11 +323,10 @@ def _render_treatment_summary_table(
             f'<th class="sortable" data-sort-key="{_sort_key}" data-sort-type="{_sort_type}">{label}</th>'
         )
     rows = []
-    n_cols = 7 + len(extra_columns)
+    n_cols = 6 + len(extra_columns)
     for sid in sorted(matrix.keys(), key=_accession):
         s = summaries[sid]
         st = _isolate_scope_stats(sid, matrix, watchlist, scope_filter)
-        country = _infer_country(sid, country_map)
         extra_attrs = ""
         extra_cells = ""
         for _label, sort_key, _sort_type, value_fn in extra_columns:
@@ -319,11 +334,11 @@ def _render_treatment_summary_table(
             extra_attrs += f' data-{sort_key}="{sort_val}"'
             extra_cells += f"<td>{display}</td>"
         rows.append(
-            f'<tr data-accession="{_accession(sid)}" data-species="{s.species}" data-country="{country}"'
+            f'<tr data-accession="{_accession(sid)}" data-species="{s.species}"'
             f' data-conserved="{st["n_same"]}" data-conserved-pct="{st["pct"]}"'
             f' data-epitope-changes="{st["n_changed"]}" data-escape="{st["n_escape"]}"'
             f' data-grantham="{st["max_grantham"]}"{extra_attrs}>'
-            f"<td>{_accession(sid)}</td><td>{s.species}</td><td>{country}</td>"
+            f"<td>{_accession(sid)}</td><td>{s.species}</td>"
             f'<td>{st["n_same"]}/{st["n_contact"]} ({st["pct"]}%)</td>'
             f'<td>{st["n_changed"]}</td><td>{st["n_escape"]}</td><td>{st["max_grantham"]}</td>'
             f"{extra_cells}</tr>"
@@ -335,36 +350,19 @@ def _render_treatment_summary_table(
 </tr></thead><tbody>{body}</tbody></table>"""
 
 
-def _load_country_map(work_dir: str) -> Dict[str, str]:
-    """taxon header or accession -> location from FASTA/location.txt."""
-    path = os.path.join(work_dir, "FASTA", "location.txt")
-    mapping: Dict[str, str] = {}
-    if not os.path.isfile(path):
-        return mapping
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("taxon"):
-                continue
-            parts = line.split("\t")
-            if len(parts) < 2:
-                continue
-            taxon, location = parts[0], parts[1]
-            mapping[taxon] = location
-            mapping[_accession(taxon)] = location
-    return mapping
-
-
-def _infer_country(seq_id: str, country_map: Dict[str, str]) -> str:
-    if seq_id in country_map:
-        return country_map[seq_id]
-    acc = _accession(seq_id)
-    if acc in country_map:
-        return country_map[acc]
-    header_parts = seq_id.split("/")
-    if len(header_parts) >= 3 and header_parts[2]:
-        return header_parts[2].replace("_", " ")
-    return "unknown"
+def _render_treatment_section(section_id: str, heading: str, body_html: str, collapsed: bool = True) -> str:
+    """Collapsible block per therapeutic (Ebanga / Inmazeb / MBP134)."""
+    body_class = " treatment-collapsed" if collapsed else ""
+    expanded = "false" if collapsed else "true"
+    btn_label = "Show results" if collapsed else "Hide results"
+    return (
+        f'<div class="treatment-section" id="{section_id}">'
+        f'<h2 class="treatment-heading">{heading} '
+        f'<button type="button" class="toggle-treatment" aria-expanded="{expanded}" '
+        f'aria-controls="{section_id}-body">{btn_label}</button></h2>'
+        f'<div class="treatment-body{body_class}" id="{section_id}-body">{body_html}</div>'
+        "</div>"
+    )
 
 
 def find_alignment_anchor_id(records, metadata: dict) -> str:
@@ -497,6 +495,10 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
                 summ.regn3471_hits += 1
             if ent.REGN3479 and (ent.contact or ent.proven_escape):
                 summ.regn3479_hits += 1
+            if ent.ADI15878 and (ent.contact or ent.proven_escape):
+                summ.adi15878_hits += 1
+            if ent.ADI23774 and (ent.contact or ent.proven_escape):
+                summ.adi23774_hits += 1
 
         for _ent in watchlist:
             _c = matrix[sid].get(_ent.pos)
@@ -509,6 +511,11 @@ def score_alignment(gp_aln_path: str, watchlist: List[PositionEntry], metadata: 
             summ.regn3479_hits > 0,
         ])
         summ.cocktail_concern = components_hit >= 2
+        mbp_components_hit = sum([
+            summ.adi15878_hits > 0,
+            summ.adi23774_hits > 0,
+        ])
+        summ.mbp134_concern = mbp_components_hit >= 2
         summaries[sid] = summ
 
     if excluded_outgroups:
@@ -562,13 +569,33 @@ def write_r_workbook(
     from openpyxl import Workbook
 
     work_dir = _work_dir_from_aln(gp_aln_path)
-    country_map = _load_country_map(work_dir)
+    consensus_hints = _collect_user_consensus_ids(work_dir)
     nonref = sorted(matrix.keys(), key=_accession)
+    n_consensus = sum(1 for sid in nonref if _sequence_source(sid, consensus_hints) == "consensus")
+    n_genbank = len(nonref) - n_consensus
+    if consensus_hints:
+        in_aln = {sid for sid in nonref if _sequence_source(sid, consensus_hints) == "consensus"}
+        missing = []
+        for hint in sorted(consensus_hints, key=str.lower):
+            if hint in matrix:
+                continue
+            if any(_is_user_consensus(sid, {hint}) for sid in matrix):
+                continue
+            if _accession(hint) in {_accession(s) for s in in_aln}:
+                continue
+            missing.append(hint)
+        if missing:
+            print(
+                "mab-escape-report: warning — %d user consensus ID(s) not in GP alignment "
+                "(CDS/GP extraction may have dropped them): %s"
+                % (len(missing), ", ".join(missing[:5]) + ("..." if len(missing) > 5 else ""))
+            )
 
     cell_header = [
+        "sequence_id",
         "accession",
+        "source",
         "species",
-        "country",
         "pos",
         "region",
         "ref_aa",
@@ -581,16 +608,19 @@ def write_r_workbook(
         "REGN3471",
     ]
     cell_rows = []
+    cell_rows_consensus = []
+    cell_rows_genbank = []
     for sid in nonref:
         summ = summaries.get(sid)
         species = summ.species if summ else _infer_species(sid)
-        country = _infer_country(sid, country_map)
+        source = _sequence_source(sid, consensus_hints)
         for ent in watchlist:
             c = matrix[sid][ent.pos]
-            cell_rows.append([
+            row = [
+                sid,
                 _accession(sid),
+                source,
                 species,
-                country,
                 ent.pos,
                 ent.region,
                 ent.zaire_aa,
@@ -601,12 +631,18 @@ def write_r_workbook(
                 ent.contact,
                 ent.mAb114,
                 ent.REGN3471,
-            ])
+            ]
+            cell_rows.append(row)
+            if source == "consensus":
+                cell_rows_consensus.append(row)
+            else:
+                cell_rows_genbank.append(row)
 
     iso_mab114_header = [
+        "sequence_id",
         "accession",
+        "source",
         "species",
-        "country",
         "n_conserved_contact",
         "n_contact_sites",
         "pct_conserved_contact",
@@ -616,9 +652,10 @@ def write_r_workbook(
         "mAb114_concern",
     ]
     iso_regn_header = [
+        "sequence_id",
         "accession",
+        "source",
         "species",
-        "country",
         "n_conserved_contact",
         "n_contact_sites",
         "pct_conserved_contact",
@@ -632,17 +669,39 @@ def write_r_workbook(
     ]
     iso_mab114_rows = []
     iso_regn_rows = []
+    iso_mab114_rows_consensus = []
+    iso_regn_rows_consensus = []
+    iso_mbp134_rows_consensus = []
+    iso_mbp134_header = [
+        "sequence_id",
+        "accession",
+        "source",
+        "species",
+        "n_conserved_contact",
+        "n_contact_sites",
+        "pct_conserved_contact",
+        "epitope_changes",
+        "escape_matches",
+        "max_grantham",
+        "ADI-15878_hits",
+        "ADI-23774_hits",
+        "MBP134_cocktail_concern",
+    ]
+    iso_mbp134_rows = []
     for sid in nonref:
         summ = summaries[sid]
-        country = _infer_country(sid, country_map)
+        source = _sequence_source(sid, consensus_hints)
         st114 = _isolate_scope_stats(sid, matrix, watchlist, _scope_filter_mab114)
         stregn = _isolate_scope_stats(sid, matrix, watchlist, _scope_filter_regn)
+        stmbp = _isolate_scope_stats(sid, matrix, watchlist, _scope_filter_mbp134)
         pct114 = round(100 * st114["n_same"] / st114["n_contact"], 1) if st114["n_contact"] else ""
         pcregn = round(100 * stregn["n_same"] / stregn["n_contact"], 1) if stregn["n_contact"] else ""
-        iso_mab114_rows.append([
+        pctmbp = round(100 * stmbp["n_same"] / stmbp["n_contact"], 1) if stmbp["n_contact"] else ""
+        row114 = [
+            sid,
             _accession(sid),
+            source,
             summ.species,
-            country,
             st114["n_same"],
             st114["n_contact"],
             pct114,
@@ -650,11 +709,12 @@ def write_r_workbook(
             st114["n_escape"],
             st114["max_grantham"],
             summ.mab114_concern,
-        ])
-        iso_regn_rows.append([
+        ]
+        rowregn = [
+            sid,
             _accession(sid),
+            source,
             summ.species,
-            country,
             stregn["n_same"],
             stregn["n_contact"],
             pcregn,
@@ -665,7 +725,29 @@ def write_r_workbook(
             summ.regn3471_hits,
             summ.regn3479_hits,
             summ.cocktail_concern,
-        ])
+        ]
+        rowmbp = [
+            sid,
+            _accession(sid),
+            source,
+            summ.species,
+            stmbp["n_same"],
+            stmbp["n_contact"],
+            pctmbp,
+            stmbp["n_changed"],
+            stmbp["n_escape"],
+            stmbp["max_grantham"],
+            summ.adi15878_hits,
+            summ.adi23774_hits,
+            summ.mbp134_concern,
+        ]
+        iso_mab114_rows.append(row114)
+        iso_regn_rows.append(rowregn)
+        iso_mbp134_rows.append(rowmbp)
+        if source == "consensus":
+            iso_mab114_rows_consensus.append(row114)
+            iso_regn_rows_consensus.append(rowregn)
+            iso_mbp134_rows_consensus.append(rowmbp)
 
     catalog = _collect_proven_escape_catalog(watchlist)
     esc_header = ["mutation", "pos", "in_dataset", "n_isolates"]
@@ -683,9 +765,27 @@ def write_r_workbook(
     _xlsx_sheet(ws_mab114, iso_mab114_header, iso_mab114_rows)
     ws_regn = wb.create_sheet("isolates_regn")
     _xlsx_sheet(ws_regn, iso_regn_header, iso_regn_rows)
+    ws_mbp = wb.create_sheet("isolates_MBP134")
+    _xlsx_sheet(ws_mbp, iso_mbp134_header, iso_mbp134_rows)
     ws_esc = wb.create_sheet("escape_catalog")
     _xlsx_sheet(ws_esc, esc_header, esc_rows)
+    if cell_rows_consensus:
+        ws = wb.create_sheet("epitope_cells_consensus")
+        _xlsx_sheet(ws, cell_header, cell_rows_consensus)
+        ws = wb.create_sheet("isolates_mab114_consensus")
+        _xlsx_sheet(ws, iso_mab114_header, iso_mab114_rows_consensus)
+        ws = wb.create_sheet("isolates_regn_consensus")
+        _xlsx_sheet(ws, iso_regn_header, iso_regn_rows_consensus)
+        ws = wb.create_sheet("isolates_MBP134_consensus")
+        _xlsx_sheet(ws, iso_mbp134_header, iso_mbp134_rows_consensus)
+    if cell_rows_genbank:
+        ws = wb.create_sheet("epitope_cells_genbank")
+        _xlsx_sheet(ws, cell_header, cell_rows_genbank)
     wb.save(path)
+    print(
+        "mab-escape-report: xlsx isolates — %d genbank, %d consensus (in GP alignment)"
+        % (n_genbank, n_consensus)
+    )
     return path
 
 
@@ -744,12 +844,24 @@ def _collect_proven_escape_catalog(watchlist: List[PositionEntry]) -> List[dict]
                     mabs.append("mAb3471")
                 if e.REGN3479 and "mAb3479" not in mabs:
                     mabs.append("mAb3479")
+                if e.ADI15878 and "ADI-15878" not in mabs:
+                    mabs.append("ADI-15878")
+                if e.ADI23774 and "ADI-23774" not in mabs:
+                    mabs.append("ADI-23774")
+            products: List[str] = []
+            if "mAb114" in mabs:
+                products.append("Ebanga")
+            if any(m in mabs for m in ("mAb3470", "mAb3471", "mAb3479")):
+                products.append("Inmazeb")
+            if any(m in mabs for m in ("ADI-15878", "ADI-23774")):
+                products.append("MBP134")
             items.append({
                 "label": lab,
                 "pos": ent.pos,
                 "zaire_aa": ent.zaire_aa,
                 "region": ent.region,
                 "mabs": mabs,
+                "products": products,
             })
     return sorted(items, key=lambda x: (x["pos"], x["label"]))
 
@@ -779,33 +891,104 @@ def _proven_escape_section(
         in_data = f'<strong>Yes</strong> ({len(hits)} isolate(s))' if hits else "No"
         acc_cell = ", ".join(hits) if hits else "&mdash;"
         mab_str = ", ".join(item["mabs"])
+        prod_str = ", ".join(item.get("products", [])) or "&mdash;"
         row_class = "escape" if hits else ""
         rows.append(
             f"<tr><td><strong>{item['label']}</strong></td><td>{item['pos']}</td>"
             f"<td>{item['zaire_aa']}&rarr;{item['label'][-1]}</td><td>{mab_str}</td>"
+            f"<td>{prod_str}</td>"
             f'<td>{item["region"]}</td><td class="{row_class}">{in_data}</td>'
             f"<td>{acc_cell}</td></tr>"
         )
     ref_label = _reference_label(metadata or {})
-    return f"""<h2>Catalogued escape mutations (literature)</h2>
-<p>Published in vitro escape variants from the watchlist, checked against all analyzed isolates (vs {ref_label}). This is not an exhaustive list of all possible escapes.</p>
+    return f"""<p>Published in vitro escape variants from the watchlist, checked against all analyzed isolates (vs {ref_label}). This is not an exhaustive list of all possible escapes.</p>
 <p><strong>Detected in this run:</strong> {n_found_any}/{len(catalog)} catalogued mutation(s).</p>
 <table class="proven-escape-table"><thead><tr>
-<th>Mutation</th><th>Pos</th><th>Change</th><th>Linked mAb</th><th>Region</th><th>In dataset?</th><th>Accessions</th>
+<th>Mutation</th><th>Pos</th><th>Change</th><th>Linked mAb</th><th>Product(s)</th><th>Region</th><th>In dataset?</th><th>Accessions</th>
 </tr></thead><tbody>{"".join(rows)}</tbody></table>"""
 
 
 
-def _is_user_consensus(seq_id: str) -> bool:
-    """Sequences added via ebolaseq --c_z, --c_b, etc. (ID contains /consensus)."""
-    return "/consensus" in (seq_id or "").lower()
+_CONSENSUS_FILE_TO_SPECIES = {
+    "consensus_zaire": "Zaire_ebolavirus",
+    "consensus_sudan": "Sudan_ebolavirus",
+    "consensus_reston": "Reston_ebolavirus",
+    "consensus_bundibugyo": "Bundibugyo_ebolavirus",
+    "consensus_tai_forest": "Tai_Forest_ebolavirus",
+    "consensus_tai": "Tai_Forest_ebolavirus",
+}
+_KNOWN_PROCESSING_SPECIES = set(_CONSENSUS_FILE_TO_SPECIES.values())
 
 
-def _cohort_subset(matrix: dict, summaries: dict, cohort: str) -> Tuple[dict, dict]:
+def _normalize_consensus_seq_id(raw_id: str, species: str, index: int) -> str:
+    """Match ID normalization in ebolaseq.run_protein_pipeline combined FASTA build."""
+    parts = raw_id.split("/")
+    if len(parts) >= 2 and parts[1] in _KNOWN_PROCESSING_SPECIES:
+        return raw_id
+    base_id = (raw_id.split()[0] if raw_id else "consensus").replace("/", "_")
+    return "%s_%d/%s/consensus" % (base_id, index, species)
+
+
+def _collect_user_consensus_ids(work_dir: str) -> Set[str]:
+    """IDs from FASTA/consensus_*.fasta (normalized + raw) for cohort tagging."""
+    ids: Set[str] = set()
+    fasta_dir = os.path.join(work_dir, "FASTA")
+    if not os.path.isdir(fasta_dir):
+        return ids
+    for fname in sorted(os.listdir(fasta_dir)):
+        if not fname.startswith("consensus_"):
+            continue
+        if not (fname.endswith(".fasta") or fname.endswith(".fa")):
+            continue
+        base = fname.replace(".fasta", "").replace(".fa", "")
+        species = _CONSENSUS_FILE_TO_SPECIES.get(base)
+        path = os.path.join(fasta_dir, fname)
+        idx = 0
+        for rec in SeqIO.parse(path, "fasta"):
+            raw = rec.id
+            ids.add(raw)
+            if species:
+                norm = _normalize_consensus_seq_id(raw, species, idx)
+                ids.add(norm)
+                idx += 1
+    combined = os.path.join(fasta_dir, "Ebola_Combined.fasta")
+    if os.path.isfile(combined):
+        for rec in SeqIO.parse(combined, "fasta"):
+            if _is_user_consensus(rec.id):
+                ids.add(rec.id)
+    return ids
+
+
+def _is_user_consensus(seq_id: str, consensus_hints: Optional[Set[str]] = None) -> bool:
+    """Sequences from ebolaseq --c_z, --c_b, etc."""
+    if not seq_id:
+        return False
+    if seq_id in (consensus_hints or ()):
+        return True
+    low = seq_id.lower()
+    if "/consensus" in low:
+        return True
+    if "|" in seq_id and "/consensus" in seq_id.split("|", 1)[-1].lower():
+        return True
+    if consensus_hints:
+        tail = seq_id.split("|")[-1] if "|" in seq_id else seq_id
+        if tail in consensus_hints:
+            return True
+    return False
+
+
+def _sequence_source(seq_id: str, consensus_hints: Set[str]) -> str:
+    return "consensus" if _is_user_consensus(seq_id, consensus_hints) else "genbank"
+
+
+def _cohort_subset(
+    matrix: dict, summaries: dict, cohort: str, consensus_hints: Optional[Set[str]] = None
+) -> Tuple[dict, dict]:
+    hints = consensus_hints or set()
     if cohort == "consensus":
-        keys = [k for k in matrix if _is_user_consensus(k)]
+        keys = [k for k in matrix if _is_user_consensus(k, hints)]
     else:
-        keys = [k for k in matrix if not _is_user_consensus(k)]
+        keys = [k for k in matrix if not _is_user_consensus(k, hints)]
     return {k: matrix[k] for k in keys}, {k: summaries[k] for k in keys if k in summaries}
 
 
@@ -814,24 +997,22 @@ def _render_report_panel(
     summaries: dict,
     ref_id: str,
     watchlist: List[PositionEntry],
-    country_map: Optional[Dict[str, str]] = None,
     panel_prefix: str = "",
     metadata: Optional[dict] = None,
 ) -> str:
     if not matrix:
         return "<p><em>No sequences in this set.</em></p>"
-    country_map = country_map or {}
     metadata = metadata or {}
     ref_label = _reference_label(metadata)
     ref_col = f"{ref_label} aa"
     all_changed = _changed_isolates(matrix, summaries, ref_id, watchlist)
     mab114_table_id = f"{panel_prefix}-summary-mab114" if panel_prefix else "summary-mab114"
     regn_table_id = f"{panel_prefix}-summary-regn" if panel_prefix else "summary-regn"
+    mbp134_table_id = f"{panel_prefix}-summary-mbp134" if panel_prefix else "summary-mbp134"
     mab114_summary = _render_treatment_summary_table(
         matrix,
         summaries,
         watchlist,
-        country_map,
         mab114_table_id,
         "Ebanga (mAb114 / ansuvimab)",
         _scope_filter_mab114,
@@ -848,7 +1029,6 @@ def _render_report_panel(
         matrix,
         summaries,
         watchlist,
-        country_map,
         regn_table_id,
         "Inmazeb (REGN-EB3: mAb3470 + mAb3471 + mAb3479)",
         _scope_filter_regn,
@@ -876,6 +1056,34 @@ def _render_report_panel(
                 "cocktail-concern",
                 "number",
                 lambda s, _st: (_yes_no(s.cocktail_concern), 1 if s.cocktail_concern else 0),
+            ),
+        ],
+    )
+    mbp134_summary = _render_treatment_summary_table(
+        matrix,
+        summaries,
+        watchlist,
+        mbp134_table_id,
+        "MBP134 (ADI-15878 + ADI-23774)",
+        _scope_filter_mbp134,
+        [
+            (
+                "ADI-15878 hits",
+                "a15878",
+                "number",
+                lambda s, _st: (s.adi15878_hits, s.adi15878_hits),
+            ),
+            (
+                "ADI-23774 hits",
+                "a23774",
+                "number",
+                lambda s, _st: (s.adi23774_hits, s.adi23774_hits),
+            ),
+            (
+                "Cocktail concern (both components)",
+                "mbp-concern",
+                "number",
+                lambda s, _st: (_yes_no(s.mbp134_concern), 1 if s.mbp134_concern else 0),
             ),
         ],
     )
@@ -939,22 +1147,52 @@ def _render_report_panel(
     if not all_changed:
         no_changes = f"<p><strong>All epitope positions match {ref_label}</strong> in this sequence set.</p>"
 
+    prefix = f"{panel_prefix}-" if panel_prefix else ""
+    ebanga_body = "\n".join(
+        [mab114_summary, antibody_table("mAb114 (Ebanga / ansuvimab)", lambda e: e.mAb114)]
+    )
+    inmazeb_body = "\n".join(
+        [
+            regn_summary,
+            antibody_table("mAb3470 — atoltivimab (Inmazeb)", lambda e: e.REGN3470),
+            antibody_table("mAb3471 — odesivimab (Inmazeb)", lambda e: e.REGN3471),
+            antibody_table("mAb3479 — maftivimab (Inmazeb)", lambda e: e.REGN3479),
+        ]
+    )
+    mbp134_body = "\n".join(
+        [
+            mbp134_summary,
+            antibody_table("ADI-15878 (MBP134 component 1)", lambda e: e.ADI15878),
+            antibody_table("ADI-23774 (MBP134 component 2)", lambda e: e.ADI23774),
+        ]
+    )
     parts = [
-        '<div class="isolate-summary-block">',
-        '<h2 class="isolate-summary-heading">Isolate summary '
-        '<button type="button" class="toggle-isolate-summary" aria-expanded="false">'
-        "Show isolate summary</button></h2>",
-        '<div class="isolate-summary-body isolate-summary-collapsed">',
-        mab114_summary,
-        regn_summary,
-        "</div></div>",
         no_changes,
-        antibody_table("mAb114 (Ebanga / ansuvimab)", lambda e: e.mAb114),
-        antibody_table("mAb3470 — atoltivimab (Inmazeb)", lambda e: e.REGN3470),
-        antibody_table("mAb3471 — odesivimab (Inmazeb)", lambda e: e.REGN3471),
-        antibody_table("mAb3479 — maftivimab (Inmazeb)", lambda e: e.REGN3479),
-        _proven_escape_section(matrix, ref_id, watchlist, metadata),
+        _render_treatment_section(
+            f"{prefix}treatment-ebanga",
+            "Ebanga (mAb114 / ansuvimab)",
+            ebanga_body,
+        ),
+        _render_treatment_section(
+            f"{prefix}treatment-inmazeb",
+            "Inmazeb (REGN-EB3)",
+            inmazeb_body,
+        ),
+        _render_treatment_section(
+            f"{prefix}treatment-mbp134",
+            "MBP134 (ADI-15878 + ADI-23774)",
+            mbp134_body,
+        ),
     ]
+    escape_catalog_body = _proven_escape_section(matrix, ref_id, watchlist, metadata)
+    if escape_catalog_body:
+        parts.append(
+            _render_treatment_section(
+                f"{prefix}treatment-escape-catalog",
+                "Catalogued escape mutations (literature)",
+                escape_catalog_body,
+            )
+        )
     return "\n".join(parts)
 
 
@@ -969,10 +1207,9 @@ def write_html(
     excluded_outgroups: List[str],
 ):
     work_dir = _work_dir_from_aln(gp_aln_path)
-    country_map = _load_country_map(work_dir)
-
-    m_dl, s_dl = _cohort_subset(matrix, summaries, "downloaded")
-    m_cs, s_cs = _cohort_subset(matrix, summaries, "consensus")
+    consensus_hints = _collect_user_consensus_ids(work_dir)
+    m_dl, s_dl = _cohort_subset(matrix, summaries, "downloaded", consensus_hints)
+    m_cs, s_cs = _cohort_subset(matrix, summaries, "consensus", consensus_hints)
     n_dl = len(m_dl)
     n_cs = len(m_cs)
     has_tabs = n_cs > 0
@@ -983,11 +1220,11 @@ def write_html(
         % (ref_label, metadata.get("reference_accession", ""), _accession(ref_id))
     )
     panel_downloaded = _render_report_panel(
-        m_dl, s_dl, ref_id, watchlist, country_map, panel_prefix="downloaded", metadata=metadata
+        m_dl, s_dl, ref_id, watchlist, panel_prefix="downloaded", metadata=metadata
     )
     panel_consensus = (
         _render_report_panel(
-            m_cs, s_cs, ref_id, watchlist, country_map, panel_prefix="consensus", metadata=metadata
+            m_cs, s_cs, ref_id, watchlist, panel_prefix="consensus", metadata=metadata
         )
         if has_tabs
         else ""
@@ -1033,12 +1270,15 @@ th {{ background: #e8ecf1; white-space: nowrap; }}
 .gscore {{ color: #555; font-size: 0.8em; font-weight: normal; }}
 .mut {{ font-weight: 600; }}
 .toggle-conserved {{ margin: 0.35rem 0 0.5rem; padding: 0.35rem 0.75rem; font-size: 0.85rem; cursor: pointer; }}
-.toggle-isolate-summary {{ margin-left: 0.5rem; padding: 0.3rem 0.65rem; font-size: 0.8rem; font-weight: normal; cursor: pointer; }}
-.isolate-summary-collapsed {{ display: none; }}
-.isolate-summary-heading {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }}
+.treatment-section {{ margin: 1.5rem 0; }}
+.treatment-heading {{ display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 1.15rem; margin: 0 0 0.5rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.35rem; }}
+.toggle-treatment {{ margin-left: auto; padding: 0.35rem 0.85rem; font-size: 0.85rem; font-weight: normal; cursor: pointer; border: 1px solid var(--border); background: #fff; border-radius: 6px; }}
+.toggle-treatment:hover {{ background: #eef2f7; }}
+.treatment-body.treatment-collapsed {{ display: none; }}
+.treatment-body {{ padding-top: 0.5rem; }}
 .summary-treatment-title {{ font-size: 1rem; margin: 1.1rem 0 0.45rem; color: var(--accent); font-weight: 600; }}
-.isolate-summary-body .summary-treatment-title:first-of-type {{ margin-top: 0.25rem; }}
-.isolate-summary-body .summary-table + .summary-treatment-title {{ margin-top: 1.35rem; }}
+.treatment-body .summary-treatment-title:first-of-type {{ margin-top: 0.25rem; }}
+.treatment-body .summary-table + h2 {{ margin-top: 1.35rem; }}
 th.sortable {{ cursor: pointer; user-select: none; }}
 th.sortable:hover {{ background: #dce3eb; }}
 th.sortable.sorted-asc::after {{ content: " ▲"; font-size: 0.75em; }}
@@ -1054,8 +1294,7 @@ th.sortable.sorted-desc::after {{ content: " ▼"; font-size: 0.75em; }}
 <p><strong>Ebanga (ansuvimab)</strong> &mdash; single monoclonal antibody <strong>mAb114</strong>.</p>
 <p><strong>Inmazeb (REGN-EB3)</strong> &mdash; <strong>cocktail of three</strong> monoclonal antibodies:
 <strong>mAb3470</strong> (atoltivimab), <strong>mAb3471</strong> (odesivimab), and <strong>mAb3479</strong> (maftivimab).</p>
-<p><strong>mAb114 vs mAb3471:</strong> epitope tables list only watchlist positions per antibody.
-Shared footprint: 112, 116, 118, 143, 144, 146, 270. Odesivimab additionally tracks 111, 272, 274&ndash;275 (I274M, W275L).</p>
+<p><strong>MBP134 / MBP134AF</strong> &mdash; cocktail of <strong>ADI-15878</strong> and <strong>ADI-23774</strong>.</p>
 </div>
 
 {_grantham_legend_html()}
@@ -1111,7 +1350,10 @@ Shared footprint: 112, 116, 118, 143, 144, 146, 270. Odesivimab additionally tra
   function apply() {{
     const minG = parseInt(slider.value, 10) || 0;
     valSpan.textContent = minG;
-    document.querySelectorAll('.tab-panel.active table.epitope-table').forEach(tbl => updateTableRows(tbl, minG));
+    const activePanel = document.querySelector('.tab-panel.active') || document.querySelector('.tab-panel');
+    if (activePanel) {{
+      activePanel.querySelectorAll('table.epitope-table').forEach(tbl => updateTableRows(tbl, minG));
+    }}
   }}
   slider.addEventListener('input', apply);
   sortSel.addEventListener('change', apply);
@@ -1129,12 +1371,19 @@ Shared footprint: 112, 116, 118, 143, 144, 146, 270. Odesivimab additionally tra
       updateTableRows(tbl, parseInt(slider.value, 10) || 0);
     }});
   }});
-  document.querySelectorAll('.toggle-isolate-summary').forEach(btn => {{
+  document.querySelectorAll('.toggle-treatment').forEach(btn => {{
     btn.addEventListener('click', () => {{
-      const body = btn.closest('.isolate-summary-block').querySelector('.isolate-summary-body');
-      const collapsed = body.classList.toggle('isolate-summary-collapsed');
+      const body = document.getElementById(btn.getAttribute('aria-controls'));
+      if (!body) return;
+      const collapsed = body.classList.toggle('treatment-collapsed');
       btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      btn.textContent = collapsed ? 'Show isolate summary' : 'Hide isolate summary';
+      btn.textContent = collapsed ? 'Show results' : 'Hide results';
+      if (!collapsed) {{
+        const panel = body.closest('.tab-panel') || document;
+        panel.querySelectorAll('table.epitope-table').forEach(tbl => {{
+          updateTableRows(tbl, parseInt(slider.value, 10) || 0);
+        }});
+      }}
     }});
   }});
   function summaryCellVal(tr, sortKey) {{
