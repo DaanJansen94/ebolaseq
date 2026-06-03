@@ -162,6 +162,41 @@ def _msa_col_for_ungapped_index(msa_row: str, uidx: int) -> Optional[int]:
     return None
 
 
+def _is_makona_baseline_row(
+    msa_row: str, baseline: str, pos_to_col: Dict[int, int], mature_start: int = 33
+) -> bool:
+    """True if MSA row matches packaged Makona mature GP at mapped Q05320 columns."""
+    checked = 0
+    for qpos, col in pos_to_col.items():
+        idx = qpos - mature_start
+        if idx < 0 or idx >= len(baseline):
+            continue
+        if col >= len(msa_row):
+            continue
+        aa = msa_row[col]
+        if aa == "-":
+            continue
+        checked += 1
+        if aa.upper() != baseline[idx].upper():
+            return False
+    return checked >= 10
+
+
+def _build_makona_msa_row(
+    pos_to_col: Dict[int, int],
+    baseline: str,
+    msa_length: int,
+    mature_start: int = 33,
+) -> str:
+    """Place Makona mature GP into MSA columns using the Q05320 → column map."""
+    row = ["-"] * msa_length
+    for qpos, col in pos_to_col.items():
+        idx = qpos - mature_start
+        if 0 <= idx < len(baseline) and 0 <= col < msa_length:
+            row[col] = baseline[idx]
+    return "".join(row)
+
+
 def _build_q05320_to_msa_col(q05320_mature: str, ref_msa_row: str) -> Dict[int, int]:
     ref_ungapped = _ungapped(ref_msa_row)
     aligner = PairwiseAligner(mode="global", match_score=2, mismatch_score=-1, open_gap_score=-2, extend_gap_score=-0.5)
@@ -1475,10 +1510,96 @@ th.sortable.sorted-desc::after {{ content: " ▼"; font-size: 0.75em; }}
 
 
 
+def _write_escape_verification_files(
+    output_dir: str,
+    gp_aln_path: str,
+    metadata: dict,
+    watchlist: List[PositionEntry],
+    anchor_id: str,
+    pos_to_col: Dict[int, int],
+) -> None:
+    """Write GP alignment (with Makona row) and coordinate map into Escape/ for cross-checks."""
+    from Bio.Seq import Seq
+    from Bio.SeqRecord import SeqRecord
+
+    dest_aln = os.path.join(output_dir, "gp_protein_aln.fasta")
+    records = list(AlignIO.read(gp_aln_path, "fasta"))
+    anchor_row = None
+    for rec in records:
+        if rec.id == anchor_id:
+            anchor_row = str(rec.seq)
+            break
+    msa_length = len(anchor_row) if anchor_row else len(str(records[0].seq))
+
+    baseline = _baseline_mature_sequence(metadata)
+    mature_start = int(metadata.get("mature_gp_start", 33))
+    ref_acc = metadata.get("reference_accession", "KJ660346.2")
+    makona_header = f"{ref_acc}|Makona_2014_GP_mature|Q05320_baseline"
+
+    makona_ids = {
+        r.id for r in records if _is_makona_baseline_row(str(r.seq), baseline, pos_to_col, mature_start)
+    }
+    makona_in_aln = [r for r in records if r.id in makona_ids]
+    other_records = [r for r in records if r.id not in makona_ids]
+    out_records: List[SeqRecord] = []
+
+    if makona_in_aln:
+        ref_rec = makona_in_aln[0]
+        ref_rec.id = makona_header
+        ref_rec.description = "Makona 2014 GP in MSA coordinates (report ref_aa / Q05320 baseline)"
+        out_records.append(ref_rec)
+        out_records.extend(other_records)
+        for dup in makona_in_aln[1:]:
+            out_records.append(dup)
+    else:
+        makona_row = _build_makona_msa_row(pos_to_col, baseline, msa_length, mature_start)
+        out_records.append(
+            SeqRecord(
+                Seq(makona_row),
+                id=makona_header,
+                description="Makona 2014 GP projected into MSA (report ref_aa; not in original alignment)",
+            )
+        )
+        out_records.extend(records)
+
+    SeqIO.write(out_records, dest_aln, "fasta")
+    ref_fasta = os.path.join(output_dir, "makona_gp_mature_reference.fasta")
+    with open(ref_fasta, "w", encoding="utf-8") as fh:
+        fh.write(
+            f">{ref_acc} GP mature (Makona 2014; Q05320 numbering baseline for report ref_aa)\n"
+        )
+        for i in range(0, len(baseline), 80):
+            fh.write(baseline[i : i + 80] + "\n")
+
+    map_path = os.path.join(output_dir, "gp_epitope_q05320_msa_map.tsv")
+    with open(map_path, "w", encoding="utf-8") as fh:
+        fh.write(
+            "q05320_pos\tmsa_column_1based\tmsa_anchor_id\tmakona_ref_aa\tdomain\tregion\t"
+            "mAb114\tREGN3470\tREGN3471\tREGN3479\tADI15878\tADI23774\tproven_escape\n"
+        )
+        for ent in sorted(watchlist, key=lambda e: e.pos):
+            col = pos_to_col.get(ent.pos)
+            col_s = str(col + 1) if col is not None else ""
+            esc = ",".join(ent.proven_escape)
+            fh.write(
+                f"{ent.pos}\t{col_s}\t{anchor_id}\t{ent.zaire_aa}\t{ent.domain}\t{ent.region}\t"
+                f"{int(ent.mAb114)}\t{int(ent.REGN3470)}\t{int(ent.REGN3471)}\t{int(ent.REGN3479)}\t"
+                f"{int(ent.ADI15878)}\t{int(ent.ADI23774)}\t{esc}\n"
+            )
+
+    print(
+        f"mab-escape-report: wrote {dest_aln} ({len(out_records)} sequences, "
+        f"Makona baseline {'in original MSA' if makona_in_aln else 'added as first row'})"
+    )
+    print(f"mab-escape-report: wrote {ref_fasta}")
+    print(f"mab-escape-report: wrote {map_path}")
+
+
 def run_mab_escape_report(gp_aln_path: str, output_dir: str = "Escape", watchlist_path: Optional[str] = None):
     os.makedirs(output_dir, exist_ok=True)
     metadata, watchlist = load_watchlist(watchlist_path)
     ref_id, pos_to_col, matrix, summaries, excluded = score_alignment(gp_aln_path, watchlist, metadata)
+    _write_escape_verification_files(output_dir, gp_aln_path, metadata, watchlist, ref_id, pos_to_col)
     html_path = os.path.join(output_dir, "gp_mab_escape_report.html")
     write_html(html_path, gp_aln_path, metadata, watchlist, ref_id, matrix, summaries, excluded)
     xlsx_path = write_r_workbook(

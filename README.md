@@ -155,7 +155,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 - **FASTA/** — Filtered sequences and `location.txt`.
 - **Alignment/** — For whole-genome: `FASTA/`, `MAFFT/`, `Trimmed/`. For protein: `pan/` (or species name) with e.g. `L/`, `NP/` each containing `cds_aligned.fasta`.
 - **Phylogeny/** — IQTree2 results (whole-genome: one tree; protein: one folder per protein).
-- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx`; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)).
+- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx`, plus `gp_protein_aln.fasta` (Makona first row), `makona_gp_mature_reference.fasta`, and `gp_epitope_q05320_msa_map.tsv` for cross-checking; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)).
 - **summary_*.txt** — Run summary and location counts.
 
 ## Notes
