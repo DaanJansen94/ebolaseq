@@ -1,5 +1,5 @@
 {% set name = "ebolaseq" %}
-{% set version = "0.2.0" %}
+{% set version = "0.2.1" %}
 
 package:
   name: {{ name }}
@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/DaanJansen94/ebolaseq/archive/v{{ version }}.tar.gz
-  sha256: 7c5c5e446e10dfa9803dcc7ed58eb80861d7e401ec983df782b87572044da2ac
+  sha256: c21365fcf299b0eabac913cfc2561cf89a902403a9a3103d520e0bf41754c7df
 
 build:
   number: 0
@@ -52,7 +52,7 @@ about:
     The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user
     specifications, performs multiple sequence alignment, and generates phylogenetic trees.
     It also includes in silico screening of GP epitope changes relevant to approved monoclonal
-    antibody therapies mAb114 (Ebanga / ansuvimab) and REGN-EB3 (Inmazeb; Regeneron) via the
+    antibody therapies mAb114 (Ebanga / ansuvimab), REGN-EB3 (Inmazeb; Regeneron), and MBP134 via the
     optional mAb escape report (HTML summary and Excel export for R).
   doc_url: https://github.com/DaanJansen94/ebolaseq/blob/master/README.md
   dev_url: https://github.com/DaanJansen94/ebolaseq
