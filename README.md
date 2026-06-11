@@ -123,7 +123,7 @@ EbolaSeq can be run in two modes:
 
 **`-t`, `--threads`** — Threads for minimap2 and MAFFT (default 1). E.g. `-t 64` on a 64-core node. 0 = use all CPUs.
 
-**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134, using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
+**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134, using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md); [Methodology](docs/Methodology.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
 
 **`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t` FASTA(s).
 
@@ -155,7 +155,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 - **FASTA/** — Filtered sequences and `location.txt`.
 - **Alignment/** — For whole-genome: `FASTA/`, `MAFFT/`, `Trimmed/`. For protein: `pan/` (or species name) with e.g. `L/`, `NP/` each containing `cds_aligned.fasta`.
 - **Phylogeny/** — IQTree2 results (whole-genome: one tree; protein: one folder per protein).
-- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx`, plus `gp_protein_aln.fasta` (Makona first row), `makona_gp_mature_reference.fasta`, and `gp_epitope_q05320_msa_map.tsv` for cross-checking; see [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md)).
+- **Escape/** — mAb escape report (`gp_mab_escape_report.html`, `mab_escape_data.xlsx`, plus `gp_protein_aln.fasta` (Makona first row), `makona_gp_mature_reference.fasta`, and `gp_epitope_q05320_msa_map.tsv` for cross-checking; epitopes: [docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md), [Methodology](docs/Methodology.md)).
 - **summary_*.txt** — Run summary and location counts.
 
 ## Notes

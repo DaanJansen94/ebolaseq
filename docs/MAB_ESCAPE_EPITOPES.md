@@ -2,6 +2,8 @@
 
 Literature GP epitopes for **Ebanga (mAb114)**, **Inmazeb (REGN-EB3)**, and **MBP134 (ADI-15878 + ADI-23774)**, mapped to **UniProt Q05320** positions and **2014 Makona** amino acids ([KJ660346.2](https://www.ncbi.nlm.nih.gov/nuccore/KJ660346.2)). The report watchlist is [`gp_epitope_watchlist.json`](../ebolaseq/data/gp_epitope_watchlist.json); tables below match that file.
 
+Pipeline steps (alignment → scoring → outputs): [Methodology](Methodology.md).
+
 ## Therapies covered
 
 | Product | Monoclonal antibody(ies) |
