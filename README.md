@@ -123,7 +123,7 @@ EbolaSeq can be run in two modes:
 
 **`-t`, `--threads`** — Threads for minimap2 and MAFFT (default 1). E.g. `-t 64` on a 64-core node. 0 = use all CPUs.
 
-**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134, using literature-defined epitope positions ([docs/MAB_ESCAPE_EPITOPES.md](docs/MAB_ESCAPE_EPITOPES.md); [Methodology](docs/Methodology.md)). Adds GP protein alignment if needed. In interactive mode this is asked first.
+**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134 (see [docs](docs/README.md)).
 
 **`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t` FASTA(s).
 
