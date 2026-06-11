@@ -112,10 +112,12 @@ EbolaSeq can be run in two modes:
 - 2 = NP (nucleoprotein)
 - 3 = VP35 (polymerase cofactor)
 - 4 = VP40 (matrix protein)
-- 5 = GP (spike glycoprotein)
-- 6 = VP30 (minor nucleoprotein)
-- 7 = VP24 (membrane-associated protein)
-- Or use names: L, NP, VP35, VP40, GP, VP30, VP24
+- 5 = GP (spike glycoprotein, full precursor)
+- 6 = GP1 (spike GP1, receptor-binding)
+- 7 = GP2 (spike GP2, fusion)
+- 8 = VP30 (minor nucleoprotein)
+- 9 = VP24 (membrane-associated protein)
+- Or use names: L, NP, VP35, VP40, GP, GP1, GP2, VP30, VP24
 
 **`--phylogeny`, `-p`** — Create phylogenetic tree from alignment
 
