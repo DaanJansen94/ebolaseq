@@ -100,14 +100,13 @@ Pan-ebolavirus GP-base mAb; quaternary IFL / HR1 epitope spanning two protomers 
 | 34 | P | GP1 | GP1 base, 2nd protomer | — | 1, 2 |
 | 45 | V | GP1 | GP1 base, 2nd protomer | — | 1, 2 |
 | 47 | D | GP1 | GP1 base, 2nd protomer | — | 1, 2 |
+| 526 | A | GP2 | IFL, adjacent protomer | — | 1, 2 |
 | 527 | I | GP2 | IFL, adjacent protomer | — | 1, 2 |
 | 528 | G | GP2 | IFL, adjacent protomer | G528E, G528S | 1, 2, 3 |
 | 529 | L | GP2 | IFL, adjacent protomer | — | 1, 2 |
 | 530 | A | GP2 | IFL, adjacent protomer | — | 1, 2 |
 | 535 | F | GP2 | IFL, adjacent protomer | — | 1, 2 |
-| 536 | G | GP2 | IFL, adjacent protomer | — | 1, 2 |
 | 537 | P | GP2 | IFL, adjacent protomer | — | 1, 2 |
-| 559 | R | GP2 | HR1, adjacent protomer | — | 1, 2 |
 | 560 | Q | GP2 | HR1, adjacent protomer | — | 1, 2 |
 | 561 | L | GP2 | HR1, adjacent protomer | — | 1, 2 |
 | 563 | N | GP2 | HR1 glycan (NAG563) | N563Y | 1, 2 |
