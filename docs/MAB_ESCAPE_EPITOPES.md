@@ -93,17 +93,13 @@ GP base / fusion loop (quaternary).
 
 ## ADI-15878 (MBP134 component 1)
 
-Pan-ebolavirus GP-base mAb; IFL / HR1 quaternary epitope (overlaps REGN3479 IFL; escape **G528E/S** not **G528R**).
+Pan-ebolavirus GP-base mAb; quaternary IFL / HR1 epitope spanning two protomers (overlaps REGN3479 IFL; escape **G528E/S** not **G528R**). Binds the conserved **N-term pocket** beneath the GP2 N-terminal tail (502–510); tail residues **504–507 are displaced and disordered** in the ADI-15878–GP complex and are **not** contact residues (2).
 
 | Pos (Q05320) | Makona 2014 aa | GP subunit | Region | Proven escape mutants | Ref |
 |-------------:|---------:|:----------:|--------|----------------------|:---:|
 | 34 | P | GP1 | GP1 base, 2nd protomer | — | 1 |
 | 45 | V | GP1 | GP1 base, 2nd protomer | — | 1 |
 | 47 | D | GP1 | GP1 base, 2nd protomer | — | 1 |
-| 504 | I | GP2 | GP2 N-term pocket | — | 2 |
-| 505 | V | GP2 | GP2 N-term / IFL N-term | — | 2 |
-| 506 | N | GP2 | GP2 N-term tail | — | 2 |
-| 507 | A | GP2 | IFL N-term | — | 2 |
 | 527 | I | GP2 | IFL, adjacent protomer | — | 1 |
 | 528 | G | GP2 | IFL, adjacent protomer | G528E, G528S | 1, 3 |
 | 529 | L | GP2 | IFL, adjacent protomer | — | 1 |
@@ -119,7 +115,7 @@ Pan-ebolavirus GP-base mAb; IFL / HR1 quaternary epitope (overlaps REGN3479 IFL;
 | 567 | Q | GP2 | HR1, adjacent protomer | — | 1 |
 
 1. Murin et al., Cell Rep 2018 — GP–ADI-15878 contacts ≤4 Å, Table S2; EBOV/Mak cryo-EM ([10.1016/j.celrep.2018.08.009](https://doi.org/10.1016/j.celrep.2018.08.009); [EMD-8935](https://www.ebi.ac.uk/emdb/EMD-8935))
-2. West et al., mBio 2018 — GPCL crystal; residues not in Table S2 ([10.1128/mBio.01674-18](https://doi.org/10.1128/mBio.01674-18); [PDB 6EA7](https://www.rcsb.org/structure/6EA7))
+2. West et al., mBio 2018 — GPCL crystal; N-term tail displaced, pocket binding ([10.1128/mBio.01674-18](https://doi.org/10.1128/mBio.01674-18); [PDB 6EA7](https://www.rcsb.org/structure/6EA7))
 3. Bornholdt et al., Cell 2017 — G528E/S escape ([10.1016/j.cell.2017.04.037](https://doi.org/10.1016/j.cell.2017.04.037))
 
 ## ADI-23774 (MBP134 component 2)
