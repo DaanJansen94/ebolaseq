@@ -124,12 +124,12 @@ def get_collection_date(record):
                         # Check if year is in the first or last position
                         potential_year = max(int(parts[0]), int(parts[-1]))
                         # Validate year is reasonable (between 1900 and current year)
-                        if 1900 <= potential_year <= 2024:
+                        if 1900 <= potential_year <= 2026:
                             return potential_year
                     else:
                         # Try direct conversion
                         year = int(date_str)
-                        if 1900 <= year <= 2024:
+                        if 1900 <= year <= 2026:
                             return year
                         
                 except (ValueError, IndexError):
@@ -140,15 +140,41 @@ def get_collection_date(record):
                     
     return 9999  # Return large number for unknown dates
 
-# ebolaS species names (for protein pipeline)
+# Short species keys used by the protein / CDS pipeline (historically "ebolaS")
 PROCESSING_TO_EBOLAS_SPECIES = {
     'Zaire_ebolavirus': 'zaire',
     'Sudan_ebolavirus': 'sudan',
     'Reston_ebolavirus': 'reston',
     'Bundibugyo_ebolavirus': 'bundibugyo',
     'Tai_Forest_ebolavirus': 'tai_forest',
+    'Marburg_virus': 'marburg',
+    'Ravn_virus': 'ravn',
 }
-# NCBI / GenBank sometimes use virus name or variant in the ID; map to same ebolaS species
+EBOLA_PROCESSING_NAMES = {
+    'Zaire_ebolavirus', 'Sudan_ebolavirus', 'Reston_ebolavirus',
+    'Bundibugyo_ebolavirus', 'Tai_Forest_ebolavirus',
+}
+MARBURG_PROCESSING_NAMES = {'Marburg_virus', 'Ravn_virus'}
+ALL_EBOLA_PROCESSING = [
+    'Zaire_ebolavirus', 'Sudan_ebolavirus', 'Bundibugyo_ebolavirus',
+    'Tai_Forest_ebolavirus', 'Reston_ebolavirus',
+]
+ALL_MARBURG_PROCESSING = ['Marburg_virus', 'Ravn_virus']
+ALL_FILOVIRUS_PROCESSING = ALL_EBOLA_PROCESSING + ALL_MARBURG_PROCESSING
+
+# NCBI organism strings that lump Marburg + Ravn; classify via isolate/description / minimap2.
+MARBURG_SHARED_ORGANISMS = {
+    'Orthomarburgvirus marburgense',
+    'Marburg marburgvirus',
+    'Lake Victoria marburgvirus',
+}
+# Inclusive query for all orthomarburgviruses; lineage is assigned later by minimap2 vs both RefSeqs.
+ORTHOMARBURG_ORGANISM_QUERY = (
+    '("Orthomarburgvirus marburgense"[organism] OR "Lake Victoria marburgvirus"[organism] '
+    'OR "Marburg marburgvirus"[organism] OR "Ravn virus"[organism])'
+)
+
+# NCBI / GenBank sometimes use virus name or variant in the ID; map to same short species key
 SPECIES_ID_ALIASES = {
     # Virus name (no "ebolavirus")
     'Bundibugyo_virus': 'bundibugyo',
@@ -176,12 +202,20 @@ SPECIES_ID_ALIASES = {
     'Tai_Forest_ebolavirus_-_Cote_d_Ivoire': 'tai_forest',
     'Cote_d_Ivoire_ebolavirus': 'tai_forest',
     'Ivory_Coast_ebolavirus': 'tai_forest',
+    # Marburg / Ravn
+    'Marburg_marburgvirus': 'marburg',
+    'Orthomarburgvirus_marburgense': 'marburg',
+    'Lake_Victoria_marburgvirus': 'marburg',
+    'Marburg_virus_-_Musoke': 'marburg',
+    'Ravn_virus_-_Ravn': 'ravn',
+    'Ravn_virus_-_Ravn,_Kenya,_1987': 'ravn',
 }
 
 # CDS pipeline: RefSeq and coordinates per species (protein alignment)
 REFSEQ_IDS_CDS = {
     "zaire": "NC_002549.1", "sudan": "NC_006432.1", "reston": "NC_004161.1",
     "bundibugyo": "NC_014373.1", "tai_forest": "NC_014372.1",
+    "marburg": "NC_001608.4", "ravn": "NC_024781.1",
 }
 SPECIES_REGIONS_CDS = {
     "zaire": {"L": (11581, 18219), "NP": (470, 2689), "VP35": (3129, 4151), "VP40": (4479, 5459), "GP": (6039, 8068), "VP30": (8509, 9375), "VP24": (10345, 11100)},
@@ -189,6 +223,10 @@ SPECIES_REGIONS_CDS = {
     "reston": {"L": (11550, 18188), "NP": (464, 2683), "VP35": (3155, 4144), "VP40": (4485, 5480), "GP": (6042, 8074), "VP30": (8490, 9353), "VP24": (10303, 11058)},
     "bundibugyo": {"L": (11567, 18199), "NP": (458, 2677), "VP35": (3108, 4133), "VP40": (4461, 5441), "GP": (6021, 8050), "VP30": (8496, 9365), "VP24": (10335, 11090)},
     "tai_forest": {"L": (11566, 18198), "NP": (464, 2683), "VP35": (3114, 4139), "VP40": (4467, 5447), "GP": (6027, 8056), "VP30": (8503, 9372), "VP24": (10339, 11094)},
+    # Marburg virus Musoke RefSeq NC_001608.4 — GP CDS already translates full-length spike (no edit insert).
+    "marburg": {"L": (11481, 18476), "NP": (104, 2191), "VP35": (2945, 3934), "VP40": (4568, 5479), "GP": (5941, 7986), "VP30": (8869, 9714), "VP24": (10207, 10968)},
+    # Ravn virus RefSeq NC_024781.1
+    "ravn": {"L": (11480, 18463), "NP": (104, 2191), "VP35": (2945, 3934), "VP40": (4568, 5479), "GP": (5941, 7986), "VP30": (8869, 9714), "VP24": (10207, 10968)},
 }
 PROTEIN_DESCRIPTIONS_CDS = {
     "L": "RNA-dependent RNA polymerase", "NP": "nucleoprotein", "VP35": "polymerase cofactor",
@@ -199,10 +237,12 @@ PROTEIN_DESCRIPTIONS_CDS = {
 # Mature GP1 length in amino acids (furin cleavage after R-X-X-R motif); species-specific RefSeq.
 GP1_AA_LEN_BY_SPECIES = {
     "zaire": 500, "sudan": 501, "reston": 505, "bundibugyo": 500, "tai_forest": 500,
+    "marburg": 435, "ravn": 435,
 }
 GP_SUBUNITS = ("GP1", "GP2")
 # GP has RNA editing: spike glycoprotein CDS has an extra A at the editing site (join in GenBank).
 # 0-based offset in extracted GP CDS (ref_start..ref_end) where to insert 'A' so translation matches GP.
+# Marburg/Ravn RefSeq GP CDS already translates full-length GP without an inserted A — omit those keys.
 GP_EDIT_OFFSET = {
     "zaire": 6923 - 6039,      # 884
     "sudan": 6882 - 5998,      # 884
@@ -228,13 +268,471 @@ ORGANISM_TO_PROCESSING = {
     'Reston ebolavirus': 'Reston_ebolavirus',
     'Reston Ebolavirus': 'Reston_ebolavirus',
     'Reston virus': 'Reston_ebolavirus',
+    # Explicit Ravn organism strings (shared Orthomarburgvirus handled in get_record_species_name)
+    'Ravn virus': 'Ravn_virus',
+    'Ravn virus - Ravn, Kenya, 1987': 'Ravn_virus',
+    'Marburg virus': 'Marburg_virus',
+    'Marburg virus - Musoke, Kenya, 1980': 'Marburg_virus',
 }
 
 # Cache for accession -> ebolaS species (avoids repeated NCBI lookups)
 _accession_species_cache = {}
 
+def _marburg_lineage_from_text(text):
+    """Return Marburg_virus or Ravn_virus from free text (isolate/description/organism)."""
+    t = (text or "").lower()
+    if "ravn" in t or "kitum cave" in t or "kitum_cave" in t:
+        return "Ravn_virus"
+    return "Marburg_virus"
+
+
+def _record_source_text(record):
+    bits = [record.id or "", record.description or ""]
+    for feature in getattr(record, "features", []) or []:
+        if feature.type != "source":
+            continue
+        for key in ("organism", "isolate", "strain", "note"):
+            if key in feature.qualifiers:
+                bits.extend(feature.qualifiers[key])
+    return " ".join(bits)
+
+
+# Minimum %-point gap (similarity to Marburg RefSeq minus Ravn RefSeq) required to call a lineage.
+# Empirically margins are ~32–93 points; 10 is a conservative unambiguous cutoff.
+MARBURG_LINEAGE_MIN_PCT_DIFF = 10.0
+
+
+def _is_orthomarburg_record(record):
+    """True if GenBank record looks like Marburg virus or Ravn virus (shared NCBI species)."""
+    for feature in getattr(record, "features", []) or []:
+        if feature.type == "source" and "organism" in feature.qualifiers:
+            org = feature.qualifiers["organism"][0]
+            if org in ORGANISM_TO_PROCESSING and ORGANISM_TO_PROCESSING[org] in MARBURG_PROCESSING_NAMES:
+                return True
+            if (
+                org in MARBURG_SHARED_ORGANISMS
+                or org.startswith("Marburg virus")
+                or org.startswith("Ravn virus")
+                or org.startswith("Lake Victoria marburgvirus")
+                or "marburg" in org.lower()
+                or "ravn" in org.lower()
+            ):
+                return True
+            break
+    text = _record_source_text(record).lower()
+    return ("marburg" in text or "ravn" in text or "orthomarburgvirus" in text)
+
+
+def _minimap_pct_similarity(ref_fasta, query_fasta, threads=1):
+    """
+    Map queries to one RefSeq with minimap2.
+
+    Returns {query_id: pct_similarity} where pct_similarity = 100 * nmatch / qlen
+    (percent of query bases matching the reference in the best primary hit).
+    """
+    nthreads = str(os.cpu_count() or 1) if threads <= 0 else str(threads)
+    cmd = [
+        "minimap2", "-x", "asm20", "-t", nthreads, "--secondary=no",
+        ref_fasta, query_fasta,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("minimap2 failed: %s" % (result.stderr or result.stdout or "unknown error"))
+    best = {}
+    for line in result.stdout.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 11:
+            continue
+        qname, qlen, nmatch = parts[0], int(parts[1]), int(parts[9])
+        if qlen <= 0:
+            continue
+        pct = 100.0 * nmatch / float(qlen)
+        if pct > best.get(qname, -1.0):
+            best[qname] = pct
+    return best
+
+
+def classify_orthomarburgvirus_by_minimap(records, threads=1, min_pct_diff=None):
+    """
+    Assign Marburg_virus vs Ravn_virus for every orthomarburgvirus record.
+
+    For each genome, compute % similarity to Marburg RefSeq (NC_001608) and Ravn
+    RefSeq (NC_024781) via minimap2 (100 * matches / query_length). Assign the
+    higher one only if |pct_marv - pct_ravn| >= min_pct_diff (default 10
+    percentage points); otherwise fall back to GenBank text.
+
+    Returns dict: record.id -> assignment info.
+    """
+    if min_pct_diff is None:
+        min_pct_diff = MARBURG_LINEAGE_MIN_PCT_DIFF
+    candidates = [r for r in records if _is_orthomarburg_record(r)]
+    assignments = {}
+    if not candidates:
+        return assignments
+
+    def _text_lineage(rec):
+        text_guess = get_record_species_name(rec)
+        if text_guess not in MARBURG_PROCESSING_NAMES:
+            text_guess = _marburg_lineage_from_text(_record_source_text(rec))
+        return text_guess if text_guess in MARBURG_PROCESSING_NAMES else "Marburg_virus"
+
+    if subprocess.run(["which", "minimap2"], capture_output=True).returncode != 0:
+        print("Warning: minimap2 not found; falling back to GenBank text for Marburg/Ravn lineage.")
+        for rec in candidates:
+            lineage = _text_lineage(rec)
+            assignments[rec.id] = {
+                "lineage": lineage,
+                "pct_marv": 0.0,
+                "pct_ravn": 0.0,
+                "pct_diff": 0.0,
+                "marv_score": 0.0,
+                "ravn_score": 0.0,
+                "text_guess": lineage,
+                "method": "text_fallback",
+            }
+        return assignments
+
+    work = tempfile.mkdtemp(prefix="ebolaseq_marburg_lineage_")
+    try:
+        query_fa = os.path.join(work, "queries.fasta")
+        marv_fa = os.path.join(work, "ref_marburg.fasta")
+        ravn_fa = os.path.join(work, "ref_ravn.fasta")
+        with open(query_fa, "w") as out:
+            for rec in candidates:
+                SeqIO.write(rec, out, "fasta")
+        with open(marv_fa, "w") as f:
+            f.write(_fetch_refseq_cds(REFSEQ_IDS_CDS["marburg"]))
+        with open(ravn_fa, "w") as f:
+            f.write(_fetch_refseq_cds(REFSEQ_IDS_CDS["ravn"]))
+
+        print(
+            "Assigning Marburg vs Ravn by %% similarity to RefSeqs "
+            "(%s / %s) for %d sequence(s); require |Δ| ≥ %.1f percentage points..."
+            % (REFSEQ_IDS_CDS["marburg"], REFSEQ_IDS_CDS["ravn"], len(candidates), min_pct_diff)
+        )
+        pct_marv_map = _minimap_pct_similarity(marv_fa, query_fa, threads=threads)
+        pct_ravn_map = _minimap_pct_similarity(ravn_fa, query_fa, threads=threads)
+
+        n_marv = n_ravn = n_fallback = 0
+        for rec in candidates:
+            text_guess = _text_lineage(rec)
+            pct_marv = pct_marv_map.get(rec.id, 0.0)
+            pct_ravn = pct_ravn_map.get(rec.id, 0.0)
+            pct_diff = pct_marv - pct_ravn  # positive → more Marburg-like
+            if pct_marv == 0.0 and pct_ravn == 0.0:
+                lineage = text_guess
+                method = "text_fallback"
+                n_fallback += 1
+            elif abs(pct_diff) < min_pct_diff:
+                lineage = text_guess
+                method = "text_fallback_close_call"
+                n_fallback += 1
+            elif pct_diff > 0:
+                lineage = "Marburg_virus"
+                method = "minimap"
+                n_marv += 1
+            else:
+                lineage = "Ravn_virus"
+                method = "minimap"
+                n_ravn += 1
+            assignments[rec.id] = {
+                "lineage": lineage,
+                "pct_marv": pct_marv,
+                "pct_ravn": pct_ravn,
+                "pct_diff": pct_diff,
+                # keep old keys for any callers expecting 0–1 scores
+                "marv_score": pct_marv / 100.0,
+                "ravn_score": pct_ravn / 100.0,
+                "text_guess": text_guess,
+                "method": method,
+            }
+        print(
+            "Marburg/Ravn assignment: %d Marburg virus, %d Ravn virus"
+            % (n_marv, n_ravn)
+            + (", %d text-fallback" % n_fallback if n_fallback else "")
+            + " (min |Δ| = %.1f pp)" % min_pct_diff
+        )
+        disagree = [
+            rid for rid, a in assignments.items()
+            if a["method"] == "minimap"
+            and a["text_guess"] in MARBURG_PROCESSING_NAMES
+            and a["text_guess"] != a["lineage"]
+        ]
+        if disagree:
+            print(
+                "Note: genotype differs from GenBank text for %d sequence(s) "
+                "(see FASTA/marburg_lineage_assignment.tsv)." % len(disagree)
+            )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return assignments
+
+
+def write_marburg_lineage_table(assignments, out_path):
+    """Write accession-level Marburg/Ravn assignment TSV (percent similarity columns)."""
+    parent = os.path.dirname(out_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(out_path, "w") as f:
+        f.write(
+            "accession\tgenotype_lineage\ttext_guess\tmethod\t"
+            "pct_similarity_marburg\tpct_similarity_ravn\tpct_diff_marv_minus_ravn\n"
+        )
+        for rid, a in sorted(assignments.items()):
+            f.write(
+                "%s\t%s\t%s\t%s\t%.2f\t%.2f\t%.2f\n"
+                % (
+                    rid,
+                    a["lineage"],
+                    a.get("text_guess") or "",
+                    a.get("method") or "",
+                    a.get("pct_marv") or 0.0,
+                    a.get("pct_ravn") or 0.0,
+                    a.get("pct_diff") or 0.0,
+                )
+            )
+
+
+# RefSeq used to put genomes in forward (+) orientation (minimap2; RC if hit is on - strand).
+REFSEQ_FOR_ORIENTATION = {
+    "Zaire_ebolavirus": "NC_002549.1",
+    "Sudan_ebolavirus": "NC_006432.1",
+    "Reston_ebolavirus": "NC_004161.1",
+    "Bundibugyo_ebolavirus": "NC_014373.1",
+    "Tai_Forest_ebolavirus": "NC_014372.1",
+    "Marburg_virus": "NC_001608.4",
+    "Ravn_virus": "NC_024781.1",
+    "Bombali_ebolavirus": "NC_039345",
+    "Lloviu_cuevavirus": "NC_016144",
+}
+
+
+def _refseq_accession_for_processing_name(name):
+    """Map a header/processing species name to the RefSeq used for strand orientation."""
+    if not name:
+        return None
+    if name in REFSEQ_FOR_ORIENTATION:
+        return REFSEQ_FOR_ORIENTATION[name]
+    short = PROCESSING_TO_EBOLAS_SPECIES.get(name) or SPECIES_ID_ALIASES.get(name)
+    if short and short in REFSEQ_IDS_CDS:
+        return REFSEQ_IDS_CDS[short]
+    return None
+
+
+def _minimap_best_strand(ref_fasta, query_fasta, threads=1):
+    """Return {query_id: '+' or '-'} from the best primary minimap2 hit (by nmatch)."""
+    nthreads = str(os.cpu_count() or 1) if threads <= 0 else str(threads)
+    cmd = [
+        "minimap2", "-x", "asm20", "-t", nthreads, "--secondary=no",
+        ref_fasta, query_fasta,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError("minimap2 strand check failed: %s" % (result.stderr or result.stdout or "unknown"))
+    best = {}  # qid -> (nmatch, strand)
+    for line in result.stdout.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 12:
+            continue
+        qname, strand, nmatch = parts[0], parts[4], int(parts[9])
+        if strand not in ("+", "-"):
+            continue
+        prev = best.get(qname)
+        if prev is None or nmatch > prev[0]:
+            best[qname] = (nmatch, strand)
+    return {qid: strand for qid, (_n, strand) in best.items()}
+
+
+def _reverse_complement_record(rec):
+    """Reverse-complement sequence in place (works for SeqRecord from FASTA or GenBank)."""
+    rec.seq = rec.seq.reverse_complement()
+    return rec
+
+
+def orient_records_to_reference(records, get_processing_name, threads=1):
+    """
+    Ensure every genome is in the same (forward) orientation as its species RefSeq.
+
+    Uses minimap2; reverse-complements records whose best hit is on the minus strand.
+    For multi-ebolavirus sets, a second pass checks all ebolavirus genomes against the
+    Zaire RefSeq so species share one absolute strand.
+    get_processing_name(record) -> e.g. 'Ravn_virus' / 'Zaire_ebolavirus'.
+    Returns number of sequences reverse-complemented.
+    """
+    if not records:
+        return 0
+    if subprocess.run(["which", "minimap2"], capture_output=True).returncode != 0:
+        print("Warning: minimap2 not found; skipping strand orientation.")
+        return 0
+
+    # Group records by RefSeq accession
+    groups = {}  # ref_acc -> [(index, record)]
+    skipped = 0
+    for i, rec in enumerate(records):
+        proc = get_processing_name(rec) if get_processing_name else None
+        ref_acc = _refseq_accession_for_processing_name(proc)
+        if not ref_acc:
+            skipped += 1
+            continue
+        groups.setdefault(ref_acc, []).append((i, rec))
+
+    if not groups:
+        if skipped:
+            print("Warning: could not orient %d sequence(s) (unknown species/RefSeq)." % skipped)
+        return 0
+
+    n_rc = 0
+    work = tempfile.mkdtemp(prefix="ebolaseq_orient_")
+    try:
+        print("Orienting genomes to RefSeq forward strand (minimap2)...")
+        for ref_acc, items in groups.items():
+            ref_fa = os.path.join(work, "ref_%s.fasta" % ref_acc.replace(".", "_"))
+            query_fa = os.path.join(work, "q_%s.fasta" % ref_acc.replace(".", "_"))
+            with open(ref_fa, "w") as f:
+                f.write(_fetch_refseq_cds(ref_acc))
+            # Use a stable temp id so we can map back even if record.id has slashes
+            id_map = {}
+            with open(query_fa, "w") as out:
+                from Bio.SeqRecord import SeqRecord
+                for idx, rec in items:
+                    tmp_id = "seq_%d" % idx
+                    id_map[tmp_id] = idx
+                    SeqIO.write(SeqRecord(rec.seq, id=tmp_id, description=""), out, "fasta")
+            strands = _minimap_best_strand(ref_fa, query_fa, threads=threads)
+            for tmp_id, strand in strands.items():
+                if strand == "-":
+                    idx = id_map[tmp_id]
+                    _reverse_complement_record(records[idx])
+                    n_rc += 1
+            unmapped = [tmp_id for tmp_id in id_map if tmp_id not in strands]
+            if unmapped:
+                print(
+                    "  Warning: %d sequence(s) did not map to %s; left unchanged."
+                    % (len(unmapped), ref_acc)
+                )
+        if n_rc:
+            print("Reverse-complemented %d sequence(s) to match RefSeq orientation." % n_rc)
+        else:
+            print("All mapped sequences already in RefSeq forward orientation.")
+
+        # Multi-ebolavirus: also force a single absolute strand vs Zaire RefSeq.
+        # Per-species RefSeqs are co-oriented today, but this catches deposits / odd
+        # headers that only map reliably to a shared anchor.
+        ebola_items = []
+        for i, rec in enumerate(records):
+            proc = get_processing_name(rec) if get_processing_name else None
+            short = None
+            if proc:
+                short = PROCESSING_TO_EBOLAS_SPECIES.get(proc) or SPECIES_ID_ALIASES.get(proc)
+            if short in ("zaire", "sudan", "reston", "bundibugyo", "tai_forest"):
+                ebola_items.append((i, rec))
+        ebola_spp = set()
+        for idx, rec in ebola_items:
+            proc = get_processing_name(rec) if get_processing_name else None
+            if proc:
+                ebola_spp.add(PROCESSING_TO_EBOLAS_SPECIES.get(proc) or SPECIES_ID_ALIASES.get(proc) or proc)
+        if len(ebola_spp) > 1 and ebola_items:
+            anchor_acc = REFSEQ_FOR_ORIENTATION["Zaire_ebolavirus"]
+            ref_fa = os.path.join(work, "anchor_zaire.fasta")
+            query_fa = os.path.join(work, "anchor_queries.fasta")
+            with open(ref_fa, "w") as f:
+                f.write(_fetch_refseq_cds(anchor_acc))
+            id_map = {}
+            with open(query_fa, "w") as out:
+                from Bio.SeqRecord import SeqRecord
+                for idx, rec in ebola_items:
+                    tmp_id = "seq_%d" % idx
+                    id_map[tmp_id] = idx
+                    SeqIO.write(SeqRecord(rec.seq, id=tmp_id, description=""), out, "fasta")
+            print(
+                "Confirming multi-ebolavirus orientation vs shared Zaire RefSeq (%s)..."
+                % anchor_acc
+            )
+            strands = _minimap_best_strand(ref_fa, query_fa, threads=threads)
+            n_anchor_rc = 0
+            for tmp_id, strand in strands.items():
+                if strand == "-":
+                    idx = id_map[tmp_id]
+                    _reverse_complement_record(records[idx])
+                    n_rc += 1
+                    n_anchor_rc += 1
+            if n_anchor_rc:
+                print(
+                    "Reverse-complemented %d more sequence(s) to match shared Zaire orientation."
+                    % n_anchor_rc
+                )
+            else:
+                print("All multi-ebolavirus genomes match shared Zaire forward orientation.")
+            unmapped = [tmp_id for tmp_id in id_map if tmp_id not in strands]
+            if unmapped:
+                print(
+                    "  Warning: %d sequence(s) did not map to shared Zaire RefSeq; left unchanged."
+                    % len(unmapped)
+                )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    if skipped:
+        print("Note: %d sequence(s) skipped (no RefSeq for species)." % skipped)
+    return n_rc
+
+
+def orient_fasta_directory(fasta_dir, threads=1):
+    """
+    Orient all genome FASTA files in fasta_dir to species RefSeq forward strand.
+    Species is taken from FASTA header field 2 (accession/Species/...).
+    Rewrites files in place. Skips non-FASTA and empty files.
+    """
+    if not os.path.isdir(fasta_dir):
+        return 0
+    if subprocess.run(["which", "minimap2"], capture_output=True).returncode != 0:
+        print("Warning: minimap2 not found; skipping FASTA strand orientation.")
+        return 0
+
+    # Collect all records with source file for rewrite
+    file_records = []  # (path, [SeqRecords])
+    total = 0
+    for fname in sorted(os.listdir(fasta_dir)):
+        if not fname.endswith((".fasta", ".fa")):
+            continue
+        if fname.startswith("marburg_lineage"):
+            continue
+        path = os.path.join(fasta_dir, fname)
+        recs = list(SeqIO.parse(path, "fasta"))
+        if not recs:
+            continue
+        file_records.append((path, recs))
+        total += len(recs)
+    if not total:
+        return 0
+
+    # Flatten with processing-name resolver from header
+    flat = []
+    for path, recs in file_records:
+        for rec in recs:
+            flat.append(rec)
+
+    def _proc_from_header(rec):
+        parts = (rec.id or "").split("/")
+        if len(parts) >= 2:
+            return parts[1]
+        return None
+
+    n_rc = orient_records_to_reference(flat, _proc_from_header, threads=threads)
+
+    # Rewrite files (records were modified in place via shared objects in flat)
+    # flat holds same objects as file_records[*][1]
+    for path, recs in file_records:
+        with open(path, "w") as out:
+            SeqIO.write(recs, out, "fasta")
+    return n_rc
+
+
 def get_ebolas_species_for_accession(accession):
-    """Fetch ORGANISM from NCBI for this accession and return ebolaS species (zaire, sudan, etc.) or None. Cached."""
+    """Fetch ORGANISM from NCBI for this accession and return short species key (zaire, marburg, …) or None. Cached."""
     accession = (accession or "").strip().split(".")[0]  # MT680258.1 -> MT680258
     if not accession:
         return None
@@ -256,7 +754,10 @@ def get_ebolas_species_for_accession(accession):
         if not organism:
             _accession_species_cache[accession] = None
             return None
-        proc_name = ORGANISM_TO_PROCESSING.get(organism)
+        if organism in MARBURG_SHARED_ORGANISMS or organism.startswith("Marburg virus -") or organism.startswith("Ravn virus"):
+            proc_name = _marburg_lineage_from_text(text)
+        else:
+            proc_name = ORGANISM_TO_PROCESSING.get(organism)
         if proc_name:
             ebolaS = PROCESSING_TO_EBOLAS_SPECIES.get(proc_name)
             _accession_species_cache[accession] = ebolaS
@@ -268,27 +769,59 @@ def get_ebolas_species_for_accession(accession):
         return None
 
 def get_record_species_name(record):
-    """Get the virus species processing name from a GenBank record (e.g. Zaire_ebolavirus)."""
+    """Get the virus species processing name from a GenBank record (e.g. Zaire_ebolavirus, Marburg_virus)."""
     for feature in record.features:
         if feature.type == "source" and 'organism' in feature.qualifiers:
             org = feature.qualifiers['organism'][0]
-            return ORGANISM_TO_PROCESSING.get(org, org.replace(' ', '_'))
+            if org in ORGANISM_TO_PROCESSING:
+                return ORGANISM_TO_PROCESSING[org]
+            if org in MARBURG_SHARED_ORGANISMS or org.startswith("Marburg virus") or org.startswith("Ravn virus") or org.startswith("Lake Victoria marburgvirus"):
+                return _marburg_lineage_from_text(_record_source_text(record))
+            return org.replace(' ', '_')
     return None
+
+
+def resolve_record_processing_name(record, virus_choices, marburg_lineage_by_id=None):
+    """Prefer minimap Marburg/Ravn lineage when available; else GenBank / selection."""
+    if marburg_lineage_by_id:
+        rid = record.id or ""
+        base = rid.split("/")[0]
+        if rid in marburg_lineage_by_id:
+            return marburg_lineage_by_id[rid]
+        if base in marburg_lineage_by_id:
+            return marburg_lineage_by_id[base]
+    if len(virus_choices) > 1:
+        return get_record_species_name(record) or virus_choices[0]
+    return virus_choices[0]
 
 def parse_virus_selection(choice, virus_processing_names):
     """
     Parse user virus selection. choice can be:
-    - '1' to '5': single species
-    - '6': all 5 species (Pan-Ebola)
-    - '1,2' or '1, 2, 3': comma-separated species numbers
+    - '1' to '5': single ebolavirus
+    - '6': all 5 ebolaviruses (Pan-Ebola)
+    - '7': Marburg virus
+    - '8': Ravn virus
+    - '9': both Marburg viruses
+    - '10': Pan-filovirus (5 ebolaviruses + Marburg + Ravn)
+    - '1,2' or '1,7': comma-separated species numbers (1-5, 7, 8)
     Returns (list of processing names, base name for filenames).
     """
     choice = choice.strip().lower()
-    all_species = [virus_processing_names[k] for k in sorted(virus_processing_names)]
-    # Option 6: all 5 species (Pan-Ebola)
+    ref_key = {
+        'Zaire_ebolavirus': 'zaire', 'Sudan_ebolavirus': 'sudan',
+        'Bundibugyo_ebolavirus': 'bundibugyo', 'Tai_Forest_ebolavirus': 'tai_forest',
+        'Reston_ebolavirus': 'reston', 'Marburg_virus': 'marburg', 'Ravn_virus': 'ravn',
+    }
     if choice == '6':
-        base_name = 'pan'
-        return all_species, base_name
+        return list(ALL_EBOLA_PROCESSING), 'pan'
+    if choice == '7':
+        return ['Marburg_virus'], 'marburg'
+    if choice == '8':
+        return ['Ravn_virus'], 'ravn'
+    if choice == '9':
+        return list(ALL_MARBURG_PROCESSING), 'marburg_both'
+    if choice == '10':
+        return list(ALL_FILOVIRUS_PROCESSING), 'pan_filo'
     # Comma-separated numbers
     if ',' in choice:
         parts = [p.strip() for p in choice.split(',') if p.strip()]
@@ -296,6 +829,8 @@ def parse_virus_selection(choice, virus_processing_names):
             return None, None
         valid = []
         for p in parts:
+            if p in ('6', '9', '10'):
+                return None, None
             if p in virus_processing_names:
                 valid.append(virus_processing_names[p])
             else:
@@ -307,24 +842,23 @@ def parse_virus_selection(choice, virus_processing_names):
             if v not in seen:
                 seen.add(v)
                 ordered.append(v)
-        # base name: zaire_sudan, zaire_sudan_bundibugyo, etc.
-        ref_key = {'Zaire_ebolavirus': 'zaire', 'Sudan_ebolavirus': 'sudan', 'Bundibugyo_ebolavirus': 'bundibugyo',
-                   'Tai_Forest_ebolavirus': 'tai_forest', 'Reston_ebolavirus': 'reston'}
         base_name = '_'.join(ref_key[s] for s in ordered)
         return ordered, base_name
-    # Single digit 1-5
+    # Single digit 1-5, 7, 8
     if choice in virus_processing_names:
         name = virus_processing_names[choice]
-        return [name], name.lower()
+        return [name], ref_key.get(name, name.lower())
     return None, None
 
-# Closest-sister outgroup RefSeq per species (genus whole-genome tree); pan/multi uses Bombali.
+# Closest-sister outgroup RefSeq per ebolavirus (genus whole-genome tree).
 OUTGROUP_REFSEQ_BY_SPECIES = {
     'Zaire_ebolavirus': {'outgroup': 'Bundibugyo_ebolavirus', 'refseq': 'NC_014373'},
     'Sudan_ebolavirus': {'outgroup': 'Reston_ebolavirus', 'refseq': 'NC_004161'},
     'Bundibugyo_ebolavirus': {'outgroup': 'Tai_Forest_ebolavirus', 'refseq': 'NC_014372'},
     'Tai_Forest_ebolavirus': {'outgroup': 'Bundibugyo_ebolavirus', 'refseq': 'NC_014373'},
     'Reston_ebolavirus': {'outgroup': 'Sudan_ebolavirus', 'refseq': 'NC_006432'},
+    'Marburg_virus': {'outgroup': 'Ravn_virus', 'refseq': 'NC_024781'},
+    'Ravn_virus': {'outgroup': 'Marburg_virus', 'refseq': 'NC_001608'},
 }
 BOMBALI_OUTGROUP_REFSEQ = 'NC_039345'
 
@@ -332,31 +866,81 @@ BOMBALI_OUTGROUP_REFSEQ = 'NC_039345'
 def get_outgroup_reference(virus_choice_or_list):
     """Fetch outgroup RefSeq GenBank record for tree rooting (--phylogeny).
 
-    Single species: closest sister taxon (RefSeq).
-    Two or more species: Bombali ebolavirus (outside the five classic species).
+    - Single ebolavirus: closest sister ebolavirus RefSeq
+    - Marburg virus alone: Ravn virus RefSeq
+    - Ravn virus alone: Marburg virus RefSeq
+    - Both Marburg viruses: no outgroup (None) — Zaire/any ebolavirus is too
+      divergent for WGS MSA; midpoint-root or inspect the MARV/RAVV split
+    - Pan-Ebola / multi-ebolavirus: Bombali ebolavirus
+    - Pan-filovirus or any Ebola+Marburg mix: no outgroup (None) — Lloviu/other
+      cuevaviruses are too divergent for WGS MSA; midpoint-root
 
-    Returns (record, outgroup_species, refseq_accession).
+    Returns (record, outgroup_species, refseq_accession), or (None, None, None)
+    when no suitable WGS outgroup exists.
     """
     Entrez.email = "anonymous@example.com"
     virus_list = virus_choice_or_list if isinstance(virus_choice_or_list, list) else [virus_choice_or_list]
     virus_set = set(virus_list)
-    refseq_dict = OUTGROUP_REFSEQ_BY_SPECIES
 
-    if len(virus_set) == 1:
-        virus_choice = virus_list[0]
-        outgroup_info = refseq_dict[virus_choice]
+    if virus_set == {'Marburg_virus'}:
+        refseq_id = OUTGROUP_REFSEQ_BY_SPECIES['Marburg_virus']['refseq']
+        outgroup_species = 'Ravn_virus'
+    elif virus_set == {'Ravn_virus'}:
+        refseq_id = OUTGROUP_REFSEQ_BY_SPECIES['Ravn_virus']['refseq']
+        outgroup_species = 'Marburg_virus'
+    elif virus_set == set(ALL_MARBURG_PROCESSING):
+        # Genus-level ebolavirus tips destroy WGS MSAs (~55% identity, gappy).
+        # MARV vs RAVV is already the biologically meaningful split.
+        return None, None, None
+    elif len(virus_set) == 1 and virus_list[0] in OUTGROUP_REFSEQ_BY_SPECIES:
+        outgroup_info = OUTGROUP_REFSEQ_BY_SPECIES[virus_list[0]]
         refseq_id = outgroup_info['refseq']
         outgroup_species = outgroup_info['outgroup']
-    else:
-        # Pan or any multi-species selection: Bombali ebolavirus
+    elif virus_set <= EBOLA_PROCESSING_NAMES:
+        # Pan-Ebola or any multi-ebolavirus selection
         refseq_id = BOMBALI_OUTGROUP_REFSEQ
         outgroup_species = 'Bombali_ebolavirus'
+    else:
+        # Pan-filovirus or mixed Ebola + Marburg: no external outgroup for WGS
+        return None, None, None
 
     handle = Entrez.efetch(db="nucleotide", id=refseq_id, rettype="gb", retmode="text")
     record = SeqIO.read(handle, "genbank")
     handle.close()
 
     return record, outgroup_species, refseq_id
+
+
+def selection_includes_ebolavirus(virus_choices):
+    """True if any selected processing name is an ebolavirus (mAb escape is Ebola-GP only)."""
+    return any(v in EBOLA_PROCESSING_NAMES for v in (virus_choices or []))
+
+
+def selection_is_pan_filovirus(virus_choices):
+    return set(virus_choices or []) == set(ALL_FILOVIRUS_PROCESSING)
+
+
+def selection_is_multi_ebolavirus(virus_choices):
+    """True if more than one ebolavirus species is selected (incl. Pan-Ebola)."""
+    return len(set(virus_choices or []) & EBOLA_PROCESSING_NAMES) > 1
+
+
+def whole_genome_divergence_note(virus_choices):
+    """Advisory note when whole-genome MSA is expected to look noisy across species."""
+    if selection_is_pan_filovirus(virus_choices):
+        return (
+            "Note: Pan-filovirus whole-genome alignment spans ~55% genus divergence; "
+            "protein CDS alignment (-a 2) is usually more reliable."
+        )
+    if selection_is_multi_ebolavirus(virus_choices):
+        return (
+            "Note: Multi-/pan-ebolavirus whole-genome alignment has ~60–70% nt identity "
+            "between species — the MSA looks noisy in a viewer even when orientation and "
+            "gene order are correct. Protein CDS alignment (-a 2) is often clearer for "
+            "cross-species work."
+        )
+    return None
+
 
 def get_sequences_to_remove(remove_file):
     """Read list of sequences to remove from file."""
@@ -399,9 +983,16 @@ def _normalize_protein_list(proteins_str: str) -> list:
     return [_MAB_ESCAPE_PROTEIN_NUM.get(p, p) for p in raw]
 
 
-def _prepare_mab_escape_report(args):
-    """Ensure protein alignment includes full GP when escape report is requested."""
+def _prepare_mab_escape_report(args, virus_choices=None):
+    """Ensure protein alignment includes full GP when escape report is requested.
+
+    Escape therapies target Ebola GP (Makona frame); skip for Marburg-only selections.
+    """
     if not getattr(args, 'mab_escape_report', False):
+        return
+    if virus_choices is not None and not selection_includes_ebolavirus(virus_choices):
+        print("mab-escape-report: skipped (Ebanga/Inmazeb/MBP134 report is Ebola GP–specific; not used for Marburg-only runs).")
+        args.mab_escape_report = False
         return
     if args.alignment != '2':
         prev = args.alignment or '3'
@@ -512,7 +1103,7 @@ def _run_mab_escape_report_if_ready(args):
 def cli_main():
     """Entry point for command line interface"""
     parser = argparse.ArgumentParser(
-        description=f'Download and analyze Ebola virus sequences ({__version__})',
+        description=f'Download and analyze Ebola and Marburg virus sequences ({__version__})',
         prog='ebolaseq'
     )
     parser.add_argument('--version', action='version', version=f'ebolaseq {__version__}', help="show program's version number")
@@ -530,7 +1121,8 @@ def cli_main():
 
     opt = parser.add_argument_group('Optional — download filters (non-interactive)')
     opt.add_argument('--virus', type=str, metavar='CHOICE',
-                     help='Species: 1 Zaire, 2 Sudan, 3 Bundibugyo, 4 Tai Forest, 5 Reston, 6 all five, or e.g. 1,2')
+                     help='1–5 ebolavirus, 6 Pan-Ebola, 7 Marburg virus, 8 Ravn virus, '
+                          '9 both Marburg, 10 Pan-filovirus, or e.g. 1,7')
     opt.add_argument('--genome', type=str, choices=['1', '2', '3'], metavar='{1,2,3}',
                      help='1 complete only, 2 partial (use --completeness), 3 all')
     opt.add_argument('--completeness', type=float, metavar='PCT',
@@ -548,6 +1140,8 @@ def cli_main():
     opt_cons.add_argument('--c_r', type=str, dest='consensus_reston', metavar='FASTA', help='Reston ebolavirus')
     opt_cons.add_argument('--c_b', type=str, dest='consensus_bundibugyo', metavar='FASTA', help='Bundibugyo ebolavirus')
     opt_cons.add_argument('--c_t', type=str, dest='consensus_tai', metavar='FASTA', help='Tai Forest ebolavirus')
+    opt_cons.add_argument('--c_m', type=str, dest='consensus_marburg', metavar='FASTA', help='Marburg virus')
+    opt_cons.add_argument('--c_rav', type=str, dest='consensus_ravn', metavar='FASTA', help='Ravn virus')
 
     opt_align = parser.add_argument_group('Optional — alignment and phylogeny')
     opt_align.add_argument('--alignment', '-a', type=str, choices=['1', '2', '3'], default=None, metavar='{1,2,3}',
@@ -560,13 +1154,13 @@ def cli_main():
     opt_align.add_argument('-t', '--threads', type=int, default=1, metavar='N',
                            help='Threads for minimap2, MAFFT, and IQTree2 (default: 1). E.g. -t 64 on a 64-core node. 0 = use all CPUs.')
     opt_align.add_argument('--mab-escape-report', action='store_true',
-                           help='GP mAb escape report (Ebanga, Inmazeb, MBP134); adds GP protein alignment if needed')
+                           help='GP mAb escape report (Ebanga, Inmazeb, MBP134; Ebola only); adds GP protein alignment if needed')
 
     opt_other = parser.add_argument_group('Optional — other')
     opt_other.add_argument(
         '--only',
         action='store_true',
-        help='Consensus-only mode: skip downloading and run using only --c_z/--c_s/--c_r/--c_b/--c_t FASTA(s)',
+        help='Consensus-only mode: skip downloading and run using only --c_z/--c_s/--c_r/--c_b/--c_t/--c_m/--c_rav FASTA(s)',
     )
     opt_other.add_argument('--remove', type=str, metavar='FILE', help='File listing sequence IDs/headers to exclude')
 
@@ -594,7 +1188,8 @@ def cli_main():
     args.output_dir = os.path.abspath(args.output_dir)
     if args.remove:
         args.remove = os.path.abspath(args.remove)
-    for attr in ('consensus_zaire', 'consensus_sudan', 'consensus_reston', 'consensus_bundibugyo', 'consensus_tai'):
+    for attr in ('consensus_zaire', 'consensus_sudan', 'consensus_reston', 'consensus_bundibugyo',
+                 'consensus_tai', 'consensus_marburg', 'consensus_ravn'):
         p = getattr(args, attr, None)
         if p:
             setattr(args, attr, os.path.abspath(p))
@@ -640,16 +1235,20 @@ def main(args, non_interactive=False):
         '2': 'Sudan ebolavirus',
         '3': 'Bundibugyo ebolavirus',
         '4': 'Tai Forest ebolavirus',
-        '5': 'Reston ebolavirus'
+        '5': 'Reston ebolavirus',
+        '7': 'Marburg virus',
+        '8': 'Ravn virus',
     }
     
-    # Internal mapping for processing (with underscores)
+    # Internal mapping for processing (with underscores); 6/9/10 handled in parse_virus_selection
     virus_processing_names = {
         '1': 'Zaire_ebolavirus',
         '2': 'Sudan_ebolavirus',
         '3': 'Bundibugyo_ebolavirus',
         '4': 'Tai_Forest_ebolavirus',
-        '5': 'Reston_ebolavirus'
+        '5': 'Reston_ebolavirus',
+        '7': 'Marburg_virus',
+        '8': 'Ravn_virus',
     }
     
     # Genome type options
@@ -668,9 +1267,10 @@ def main(args, non_interactive=False):
 
     # Consensus-only shortcut: no download, only user-provided consensus FASTA(s)
     if getattr(args, 'only', False):
-        # In --only mode, we still allow an interactive "analysis wizard" (alignment/proteins/phylogeny/mAb report)
-        # unless the user explicitly provided those flags.
+        # Interactive analysis wizard only when --alignment was not given on the CLI.
+        # If -a/-pr/--phylogeny/--mab-escape-report are set, run non-interactively (no stdin prompts).
         proteins_were_provided = getattr(args, '_proteins_explicit', False)
+        alignment_from_cli = args.alignment is not None
         if args.alignment is None:
             print("\nConsensus-only mode: choose analysis steps (no downloading).")
             print("\nAlignment options:")
@@ -685,43 +1285,50 @@ def main(args, non_interactive=False):
 
         # Protein selection right after alignment=2 (before mAb report question).
         if args.alignment == '2' and not proteins_were_provided:
-            print("\nSelect protein(s) to align (comma-separated; GP is added automatically if mAb report is enabled):")
-            print("1. L (RNA-dependent RNA polymerase)")
-            print("2. NP (nucleoprotein)")
-            print("3. VP35 (polymerase cofactor)")
-            print("4. VP40 (matrix protein)")
-            print("5. GP (spike glycoprotein, full)")
-            print("6. GP1 (spike GP1, receptor-binding)")
-            print("7. GP2 (spike GP2, fusion)")
-            print("8. VP30 (minor nucleoprotein)")
-            print("9. VP24 (membrane-associated protein)")
-            prot_in = input("\nSelect protein(s) (optional, e.g. 1,2; default L): ").strip() or "1"
-            args.proteins = prot_in
+            if alignment_from_cli:
+                args.proteins = 'L'
+            else:
+                print("\nSelect protein(s) to align (comma-separated; GP is added automatically if mAb report is enabled):")
+                print("1. L (RNA-dependent RNA polymerase)")
+                print("2. NP (nucleoprotein)")
+                print("3. VP35 (polymerase cofactor)")
+                print("4. VP40 (matrix protein)")
+                print("5. GP (spike glycoprotein, full)")
+                print("6. GP1 (spike GP1, receptor-binding)")
+                print("7. GP2 (spike GP2, fusion)")
+                print("8. VP30 (minor nucleoprotein)")
+                print("9. VP24 (membrane-associated protein)")
+                prot_in = input("\nSelect protein(s) (optional, e.g. 1,2; default L): ").strip() or "1"
+                args.proteins = prot_in
 
-        # mAb escape report (after protein choice when alignment=2).
-        if not getattr(args, 'mab_escape_report', False):
-            print("\nRun mAb escape epitope report (Ebanga / Inmazeb / MBP134)?")
-            print("1. Yes")
-            print("2. No")
-            mab_choice = input("\nSelect option (1-2, default 2): ").strip() or "2"
-            while mab_choice not in ("1", "2"):
-                print("Please enter 1 or 2")
-                mab_choice = input("Select option (1-2, default 2): ").strip() or "2"
-            args.mab_escape_report = (mab_choice == "1")
+        # mAb / phylogeny prompts only in the interactive wizard (no --alignment on CLI)
+        if not alignment_from_cli:
+            if not getattr(args, 'mab_escape_report', False):
+                print("\nRun mAb escape epitope report (Ebanga / Inmazeb / MBP134)?")
+                print("(Ebola glycoprotein only; not applicable to Marburg-only consensus runs.)")
+                print("1. Yes")
+                print("2. No")
+                mab_choice = input("\nSelect option (1-2, default 2): ").strip() or "2"
+                while mab_choice not in ("1", "2"):
+                    print("Please enter 1 or 2")
+                    mab_choice = input("Select option (1-2, default 2): ").strip() or "2"
+                args.mab_escape_report = (mab_choice == "1")
+
+            if not getattr(args, 'phylogeny', False):
+                print("\nDo you want to build a phylogeny?")
+                print("1. Yes")
+                print("2. No")
+                phy_choice = input("\nSelect phylogeny option (1-2, default 2): ").strip() or "2"
+                while phy_choice not in ("1", "2"):
+                    print("Please enter 1 or 2")
+                    phy_choice = input("Select phylogeny option (1-2, default 2): ").strip() or "2"
+                args.phylogeny = (phy_choice == "1")
+        else:
+            if not hasattr(args, 'mab_escape_report') or args.mab_escape_report is None:
+                args.mab_escape_report = False
 
         if getattr(args, 'mab_escape_report', False):
             _prepare_mab_escape_report(args)
-
-        # Phylogeny prompt if not explicitly requested
-        if not getattr(args, 'phylogeny', False):
-            print("\nDo you want to build a phylogeny?")
-            print("1. Yes")
-            print("2. No")
-            phy_choice = input("\nSelect phylogeny option (1-2, default 2): ").strip() or "2"
-            while phy_choice not in ("1", "2"):
-                print("Please enter 1 or 2")
-                phy_choice = input("Select phylogeny option (1-2, default 2): ").strip() or "2"
-            args.phylogeny = (phy_choice == "1")
 
         consensus_attrs = [
             ('zaire', 'consensus_zaire'),
@@ -729,11 +1336,13 @@ def main(args, non_interactive=False):
             ('reston', 'consensus_reston'),
             ('bundibugyo', 'consensus_bundibugyo'),
             ('tai', 'consensus_tai'),
+            ('marburg', 'consensus_marburg'),
+            ('ravn', 'consensus_ravn'),
         ]
         provided = [(name, getattr(args, attr, None)) for name, attr in consensus_attrs]
         provided = [(name, path) for name, path in provided if path]
         if not provided:
-            print("Error: --only requires at least one consensus FASTA (--c_z/--c_s/--c_r/--c_b/--c_t).")
+            print("Error: --only requires at least one consensus FASTA (--c_z/--c_s/--c_r/--c_b/--c_t/--c_m/--c_rav).")
             return
 
         # Ensure defaults exist when user did not go through prompts (e.g. provided flags)
@@ -764,6 +1373,8 @@ def main(args, non_interactive=False):
         if nthreads <= 0:
             nthreads = os.cpu_count() or 1
 
+        orient_fasta_directory("FASTA", threads=nthreads)
+
         if args.alignment == '1':
             if getattr(args, 'phylogeny', False):
                 print("\nStarting phylogenetic analysis (whole genome)...")
@@ -785,10 +1396,17 @@ def main(args, non_interactive=False):
         choice = args.virus.strip().lower()
         virus_choices, base_name = parse_virus_selection(choice, virus_processing_names)
         if not virus_choices:
-            print(f"Invalid virus selection: {args.virus}. Use 1-6 or comma-separated (e.g. 1,2).")
+            print(f"Invalid virus selection: {args.virus}. Use 1-10 or comma-separated (e.g. 1,2 or 1,7).")
             return
-        virus_display_name = base_name if len(virus_choices) > 1 else virus_options.get(
-            next((k for k, v in virus_processing_names.items() if v == virus_choices[0]), ''), base_name
+        display_names = {
+            'pan': 'Pan-Ebola (all 5 ebolaviruses)',
+            'marburg_both': 'Both Marburg viruses',
+            'pan_filo': 'Pan-filovirus',
+        }
+        virus_display_name = display_names.get(base_name) or (
+            base_name if len(virus_choices) > 1 else virus_options.get(
+                next((k for k, v in virus_processing_names.items() if v == virus_choices[0]), ''), base_name
+            )
         )
         genome_choice = args.genome
         completeness_threshold = args.completeness if args.genome == '2' else 0
@@ -802,20 +1420,32 @@ def main(args, non_interactive=False):
         if not hasattr(args, 'mab_escape_report'):
             args.mab_escape_report = False
         if getattr(args, 'mab_escape_report', False):
-            _prepare_mab_escape_report(args)
+            _prepare_mab_escape_report(args, virus_choices)
+        note = whole_genome_divergence_note(virus_choices) if args.alignment == '1' else None
+        if note:
+            print(note)
     else:
         # Interactive mode
-        print("\nAvailable Ebola virus species:")
-        for key, value in virus_options.items():
-            print(f"{key}. {value}")
-        print("6. Pan (all 5 species)")
-        print("   Or enter multiple species as comma-separated numbers (e.g. 1,2 or 1,2,3)")
-        choice = input("\nSelect the virus type (1-6, or e.g. 1,2): ").strip()
+        print("\nAvailable viruses / sets:")
+        for key in ('1', '2', '3', '4', '5'):
+            print(f"{key}. {virus_options[key]}")
+        print("6. Pan-Ebola (all 5 ebolaviruses)")
+        print(f"7. {virus_options['7']}")
+        print(f"8. {virus_options['8']}")
+        print("9. Both Marburg viruses")
+        print("10. Pan-filovirus (all ebolaviruses + both Marburg viruses)")
+        print("   Or enter multiple species as comma-separated numbers (e.g. 1,2 or 1,7)")
+        choice = input("\nSelect the virus type (1-10, or e.g. 1,2): ").strip()
         virus_choices, base_name = parse_virus_selection(choice, virus_processing_names)
         if not virus_choices:
-            print("Invalid selection. Use 1-6 (6 = all 5 species) or e.g. 1,2 for multiple.")
+            print("Invalid selection. Use 1-10 or e.g. 1,2 for multiple.")
             return
-        virus_display_name = "Pan (all 5)" if base_name == "pan" else (
+        display_names = {
+            'pan': 'Pan-Ebola (all 5 ebolaviruses)',
+            'marburg_both': 'Both Marburg viruses',
+            'pan_filo': 'Pan-filovirus',
+        }
+        virus_display_name = display_names.get(base_name) or (
             ", ".join(virus_options.get(next((k for k, v in virus_processing_names.items() if v == s), ''), s) for s in virus_choices)
             if len(virus_choices) > 1 else virus_options.get(choice, base_name)
         )
@@ -864,16 +1494,19 @@ def main(args, non_interactive=False):
         else:
             beast_choice = '1'
 
-        # mAb escape report first (sets alignment / GP needs for later prompts)
+        # mAb escape report first (sets alignment / GP needs for later prompts) — Ebola only
         args.mab_escape_report = False
-        print("\nRun mAb escape epitope report (Ebanga / Inmazeb / MBP134)?")
-        print("1. Yes")
-        print("2. No")
-        escape_choice = input("\nSelect option (1-2): ").strip()
-        while escape_choice not in ('1', '2'):
-            print("Please enter 1 or 2")
-            escape_choice = input("Select option (1-2): ").strip()
-        args.mab_escape_report = (escape_choice == '1')
+        if selection_includes_ebolavirus(virus_choices):
+            print("\nRun mAb escape epitope report (Ebanga / Inmazeb / MBP134)?")
+            print("1. Yes")
+            print("2. No")
+            escape_choice = input("\nSelect option (1-2): ").strip()
+            while escape_choice not in ('1', '2'):
+                print("Please enter 1 or 2")
+                escape_choice = input("Select option (1-2): ").strip()
+            args.mab_escape_report = (escape_choice == '1')
+        else:
+            print("\nSkipping mAb escape report prompt (Ebola GP therapies only; not used for Marburg-only runs).")
 
         protein_map = {
             '1': 'L', '2': 'NP', '3': 'VP35', '4': 'VP40', '5': 'GP',
@@ -918,6 +1551,8 @@ def main(args, non_interactive=False):
             print("1. Whole genome alignment")
             print("2. Protein (CDS-based, protein-level alignment)")
             print("3. No")
+            if selection_is_pan_filovirus(virus_choices) or selection_is_multi_ebolavirus(virus_choices):
+                print("(Tip: for multi-/pan-species sets, protein alignment is usually clearer than whole-genome.)")
             alignment_choice = input("\nSelect alignment option (1-3): ").strip()
             while alignment_choice not in ('1', '2', '3'):
                 print("Please enter 1, 2, or 3")
@@ -952,7 +1587,10 @@ def main(args, non_interactive=False):
                     print("Defaulting to L.")
 
         if args.mab_escape_report:
-            _prepare_mab_escape_report(args)
+            _prepare_mab_escape_report(args, virus_choices)
+        note = whole_genome_divergence_note(virus_choices) if args.alignment == '1' else None
+        if note:
+            print(note)
         if alignment_choice in ('1', '2'):
             print("\nDo you want to build a phylogeny?")
             print("1. Yes")
@@ -982,6 +1620,49 @@ def main(args, non_interactive=False):
         return
         
     print(f"\nTotal records found: {len(records)}")
+
+    # Orthomarburgvirus: assign MARV vs RAVV by minimap2 vs both RefSeqs (all such genomes,
+    # for consistent labels), then keep only lineages requested in --virus.
+    marburg_lineage_by_id = {}
+    nthreads = getattr(args, 'threads', 1)
+    if set(virus_choices) & MARBURG_PROCESSING_NAMES:
+        assignments = classify_orthomarburgvirus_by_minimap(records, threads=nthreads)
+        marburg_lineage_by_id = {rid: a["lineage"] for rid, a in assignments.items()}
+        if assignments:
+            os.makedirs("FASTA", exist_ok=True)
+            write_marburg_lineage_table(
+                assignments, os.path.join("FASTA", "marburg_lineage_assignment.tsv")
+            )
+        wanted_marburg = set(virus_choices) & MARBURG_PROCESSING_NAMES
+        kept = []
+        dropped = 0
+        for rec in records:
+            if rec.id in marburg_lineage_by_id:
+                if marburg_lineage_by_id[rec.id] in wanted_marburg:
+                    kept.append(rec)
+                else:
+                    dropped += 1
+            else:
+                # Non-marburg (e.g. ebolavirus in a mixed run)
+                kept.append(rec)
+        if dropped:
+            print(
+                "Filtered %d orthomarburgvirus sequence(s) not in requested lineage(s): %s."
+                % (dropped, ", ".join(sorted(w.replace("_", " ") for w in wanted_marburg)))
+            )
+        records = kept
+        if not records:
+            print("\nNo sequences left after Marburg/Ravn lineage filtering.")
+            if os.path.exists(output_file):
+                os.remove(output_file)
+            return
+
+    # Put all genomes in RefSeq forward orientation (fixes reverse-complement deposits e.g. KU059750).
+    orient_records_to_reference(
+        records,
+        lambda rec: resolve_record_processing_name(rec, virus_choices, marburg_lineage_by_id),
+        threads=nthreads,
+    )
     
     # Get sequences to remove if file provided
     sequences_to_remove = set()
@@ -997,11 +1678,27 @@ def main(args, non_interactive=False):
     fasta_filename = f"filtered_{base_filename}.fasta"
     summary_filename = f"summary_{base_filename}.txt"
     
-    # Outgroup only when --phylogeny (for tree rooting)
+    # Outgroup only when --phylogeny (for tree rooting); may be None (e.g. both Marburg WGS)
     outgroup_record = outgroup_species = outgroup_filename = outgroup_refseq = outgroup_tip_id = None
     if args.phylogeny:
         outgroup_record, outgroup_species, outgroup_refseq = get_outgroup_reference(virus_choices)
-        outgroup_filename = f"outgroup_{outgroup_species.lower()}_{genome_type_str}_{host_str}.fasta"
+        if outgroup_record is not None:
+            outgroup_filename = f"outgroup_{outgroup_species.lower()}_{genome_type_str}_{host_str}.fasta"
+        elif set(virus_choices) == set(ALL_MARBURG_PROCESSING):
+            print(
+                "Note: no ebolavirus outgroup for both Marburg viruses — too divergent for WGS MSA. "
+                "Tree is unrooted (midpoint-root in a viewer); MARV vs RAVV is the main split. "
+                "For a rooted genus tree use protein L/NP (--alignment 2) with --virus 10, or run "
+                "Marburg alone (--virus 7, Ravn outgroup) / Ravn alone (--virus 8)."
+            )
+        elif selection_is_pan_filovirus(virus_choices) or (
+            set(virus_choices) & MARBURG_PROCESSING_NAMES and set(virus_choices) & EBOLA_PROCESSING_NAMES
+        ):
+            print(
+                "Note: no external outgroup for pan-filovirus / Ebola+Marburg WGS — "
+                "Lloviu (and similar) is too divergent for the MSA. Tree is unrooted; "
+                "midpoint-root in a viewer. Prefer protein alignment (-a 2) for cross-genus work."
+            )
     
     # Create output directories and files
     os.makedirs("FASTA", exist_ok=True)
@@ -1029,7 +1726,7 @@ def main(args, non_interactive=False):
     with open(fasta_path, "w") as output:
         for record in records:
             try:
-                record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
+                record_species = resolve_record_processing_name(record, virus_choices, marburg_lineage_by_id)
                 if record.id in sequences_to_remove:
                     print(f"Removing sequence: {record.id}")
                     sequences_removed += 1
@@ -1052,7 +1749,7 @@ def main(args, non_interactive=False):
     fasta_location_file = os.path.join("FASTA", "location.txt")
     with open(fasta_location_file, "w") as loc_file:
         for record in records:
-            record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
+            record_species = resolve_record_processing_name(record, virus_choices, marburg_lineage_by_id)
             if record.id != "MF102255.1":
                 location = get_location(record)
                 if location != "Unknown":
@@ -1069,7 +1766,7 @@ def main(args, non_interactive=False):
         beast_fasta = os.path.join("BEAST_input", f"beast_{os.path.basename(fasta_filename)}")
         with open(beast_fasta, "w") as output:
             for record in records:
-                record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
+                record_species = resolve_record_processing_name(record, virus_choices, marburg_lineage_by_id)
                 if record.id != "MF102255.1":
                     formatted_id = format_record_id(record, record_species, '2')
                     if formatted_id:
@@ -1091,7 +1788,7 @@ def main(args, non_interactive=False):
             location_file = os.path.join("BEAST_input", "location.txt")
             with open(location_file, "w") as loc_file:
                 for record in records:
-                    record_species = (get_record_species_name(record) or virus_choices[0]) if len(virus_choices) > 1 else virus_choices[0]
+                    record_species = resolve_record_processing_name(record, virus_choices, marburg_lineage_by_id)
                     if record.id != "MF102255.1":
                         location = get_location(record)
                         if location != "Unknown":
@@ -1111,15 +1808,38 @@ def main(args, non_interactive=False):
     with open(summary_filename, "w") as summary:
         if outgroup_record is not None:
             summary.write("=== Suggested Outgroup (for tree rooting when using --phylogeny) ===\n")
-            if len(virus_choices) == 1:
+            if set(virus_choices) == {'Marburg_virus'}:
+                summary.write("Strategy: Ravn virus (sister orthomarburgvirus)\n")
+            elif set(virus_choices) == {'Ravn_virus'}:
+                summary.write("Strategy: Marburg virus (sister orthomarburgvirus)\n")
+            elif set(virus_choices) <= EBOLA_PROCESSING_NAMES and len(virus_choices) > 1:
+                summary.write("Strategy: Bombali ebolavirus (pan / multi-ebolavirus)\n")
+            elif len(virus_choices) == 1:
                 summary.write("Strategy: closest sister species (RefSeq)\n")
             else:
-                summary.write("Strategy: Bombali ebolavirus (pan / multi-species)\n")
+                summary.write("Strategy: multi-species outgroup (RefSeq)\n")
             summary.write(f"Outgroup species: {outgroup_species}\n")
             summary.write(f"RefSeq accession: {outgroup_refseq}\n")
             summary.write(f"Sequence ID in FASTA: {outgroup_record.id}\n")
             summary.write(f"NCBI: https://www.ncbi.nlm.nih.gov/nuccore/{outgroup_refseq}\n")
             summary.write(f"File: FASTA/{os.path.basename(outgroup_filename)}\n")
+        elif args.phylogeny and set(virus_choices) == set(ALL_MARBURG_PROCESSING):
+            summary.write(
+                "=== Outgroup ===\n"
+                "None for both Marburg viruses (WGS). An ebolavirus tip is too divergent and "
+                "gappy for whole-genome MSA. Midpoint-root the tree; MARV vs RAVV is the split "
+                "of interest. Sister outgroups: --virus 7 (Ravn) or --virus 8 (Marburg).\n"
+            )
+        elif args.phylogeny and (
+            selection_is_pan_filovirus(virus_choices)
+            or (set(virus_choices) & MARBURG_PROCESSING_NAMES and set(virus_choices) & EBOLA_PROCESSING_NAMES)
+        ):
+            summary.write(
+                "=== Outgroup ===\n"
+                "None for pan-filovirus / Ebola+Marburg whole-genome. Lloviu cuevavirus is too "
+                "divergent for WGS MSA. Midpoint-root the tree. Prefer protein CDS alignment "
+                "(-a 2) for cross-genus comparisons.\n"
+            )
         else:
             summary.write("Outgroup not included (use --phylogeny to add outgroup for tree rooting).\n")
         
@@ -1160,7 +1880,8 @@ def main(args, non_interactive=False):
         # Copy per-species consensus FASTA if provided (--c_z, --c_s, etc.)
         consensus_copied = []
         for name, attr in [('zaire', 'consensus_zaire'), ('sudan', 'consensus_sudan'), ('reston', 'consensus_reston'),
-                          ('bundibugyo', 'consensus_bundibugyo'), ('tai', 'consensus_tai')]:
+                          ('bundibugyo', 'consensus_bundibugyo'), ('tai', 'consensus_tai'),
+                          ('marburg', 'consensus_marburg'), ('ravn', 'consensus_ravn')]:
             path = getattr(args, attr, None)
             if path:
                 dst = copy_consensus_file(path, "FASTA", dest_name="consensus_%s.fasta" % name)
@@ -1177,6 +1898,9 @@ def main(args, non_interactive=False):
         if os.path.exists(fasta_path) and outgroup_path and os.path.exists(outgroup_path):
             print("Creating location file in FASTA directory...")
             create_fasta_location_file(fasta_path, outgroup_path)
+
+        # Orient any FASTA added after GenBank write (outgroup, consensus, RefSeq copies).
+        orient_fasta_directory("FASTA", threads=nthreads)
         
         # Run alignment and/or phylogeny based on alignment type
         nthreads = getattr(args, 'threads', 1)
@@ -1222,19 +1946,23 @@ def download_sequences(virus_choices, genome_choice, host_choice, metadata_choic
     if isinstance(virus_choices, str):
         virus_choices = [virus_choices]
 
-    # Reference sequence IDs for each virus type
+    # Reference sequence IDs for each virus type (excluded from download hits)
     reference_sequences = {
         'Zaire_ebolavirus': 'NC_002549.1',
         'Sudan_ebolavirus': 'NC_006432.1',
         'Bundibugyo_ebolavirus': 'NC_014373.1',
         'Tai_Forest_ebolavirus': 'NC_014372.1',
-        'Reston_ebolavirus': 'NC_004161.1'
+        'Reston_ebolavirus': 'NC_004161.1',
+        'Marburg_virus': 'NC_001608.4',
+        'Ravn_virus': 'NC_024781.1',
     }
 
     # Build query with all filters
     query_parts = []
 
-    # Virus species filter: one or more species (OR). NCBI uses organism names with spaces.
+    # Virus species filter: one or more species (OR).
+    # Marburg + Ravn share one NCBI species — always download the full Orthomarburgvirus
+    # set when either is requested, then assign lineage by minimap2 vs both RefSeqs.
     ORGANISM_QUERY = {
         'Zaire_ebolavirus': '("Zaire ebolavirus"[organism] OR "Zaire Ebolavirus"[organism] OR "ZEBOV"[All Fields])',
         'Sudan_ebolavirus': '("Sudan ebolavirus"[organism] OR "Sudan Ebolavirus"[organism])',
@@ -1242,7 +1970,12 @@ def download_sequences(virus_choices, genome_choice, host_choice, metadata_choic
         'Tai_Forest_ebolavirus': '("Tai Forest ebolavirus"[organism] OR "Tai Forest Ebolavirus"[organism])',
         'Reston_ebolavirus': '("Reston ebolavirus"[organism] OR "Reston Ebolavirus"[organism])',
     }
-    organism_clauses = [ORGANISM_QUERY.get(v, f'"{v}"[organism]') for v in virus_choices]
+    organism_clauses = []
+    non_marburg = [v for v in virus_choices if v not in MARBURG_PROCESSING_NAMES]
+    for v in non_marburg:
+        organism_clauses.append(ORGANISM_QUERY.get(v, f'"{v}"[organism]'))
+    if set(virus_choices) & MARBURG_PROCESSING_NAMES:
+        organism_clauses.append(ORTHOMARBURG_ORGANISM_QUERY)
     query_parts.append("(" + " OR ".join(organism_clauses) + ")")
 
     # Add host filter with multiple possible formats
@@ -1318,6 +2051,8 @@ PROCESSING_TO_REF_KEY = {
     'Bundibugyo_ebolavirus': 'Bundibugyo',
     'Tai_Forest_ebolavirus': 'Tai Forest',
     'Reston_ebolavirus': 'Reston',
+    'Marburg_virus': 'Marburg',
+    'Ravn_virus': 'Ravn',
 }
 
 def get_reference_length(virus_type):
@@ -1327,7 +2062,9 @@ def get_reference_length(virus_type):
         'Sudan': 18875,
         'Bundibugyo': 18940,
         'Tai Forest': 18935,
-        'Reston': 18891
+        'Reston': 18891,
+        'Marburg': 19112,
+        'Ravn': 19114,
     }
     key = PROCESSING_TO_REF_KEY.get(virus_type, virus_type)
     return reference_lengths.get(key, 18959)
@@ -1520,6 +2257,8 @@ def add_species_refseq_to_fasta(species_key: str, fasta_dir: str):
         "bundibugyo": "bundibugyo",
         "tai": "tai_forest",
         "tai_forest": "tai_forest",
+        "marburg": "marburg",
+        "ravn": "ravn",
     }
     proc_map = {
         "zaire": "Zaire_ebolavirus",
@@ -1527,6 +2266,8 @@ def add_species_refseq_to_fasta(species_key: str, fasta_dir: str):
         "reston": "Reston_ebolavirus",
         "bundibugyo": "Bundibugyo_ebolavirus",
         "tai_forest": "Tai_Forest_ebolavirus",
+        "marburg": "Marburg_virus",
+        "ravn": "Ravn_virus",
     }
     skey = key_map.get((species_key or "").strip().lower())
     if not skey:
@@ -1695,7 +2436,8 @@ def _translate_cds_to_protein(rec):
 
 def _gp1_aa_length(aa, species=None):
     """Length of mature GP1 in amino acids (cleavage C-terminal to furin R-X-X-R motif)."""
-    w0 = 450
+    # Marburg/Ravn furin ~435; Ebola ~500 — start window early enough for both.
+    w0 = 420
     if len(aa) > w0:
         window = aa[w0:min(530, len(aa))]
         m = re.search(r"R..R", window)
@@ -1773,6 +2515,43 @@ def _translate_cds_fasta(cds_path, protein_path):
     with open(protein_path, "w") as f:
         SeqIO.write(proteins, f, "fasta")
 
+
+def _drop_proteins_with_internal_stops(cds_path, protein_path, protein_label):
+    """
+    Remove CDS/protein pairs with internal stop codons before MAFFT.
+
+    Premature stops (frameshifts / nonsense) distort the protein MSA if left in;
+    a terminal '*' from a canonical stop codon is allowed.
+    Returns number of sequences removed.
+    """
+    proteins = list(SeqIO.parse(protein_path, "fasta"))
+    if not proteins:
+        return 0
+    bad_ids = []
+    for rec in proteins:
+        aa = str(rec.seq).upper().replace("-", "")
+        body = aa[:-1] if aa.endswith("*") else aa
+        if "*" in body:
+            bad_ids.append(rec.id)
+    if not bad_ids:
+        return 0
+    bad_set = set(bad_ids)
+    for eid in bad_ids:
+        shown = eid if len(eid) <= 80 else eid[:80] + "..."
+        print("  %s: excluding before alignment (internal stop codon): %s" % (protein_label, shown))
+    kept_prot = [r for r in proteins if r.id not in bad_set]
+    kept_cds = [r for r in SeqIO.parse(cds_path, "fasta") if r.id not in bad_set]
+    with open(protein_path, "w") as f:
+        SeqIO.write(kept_prot, f, "fasta")
+    with open(cds_path, "w") as f:
+        SeqIO.write(kept_cds, f, "fasta")
+    print(
+        "  %s: removed %d sequence(s) with internal stop(s) before MAFFT (%d remain)."
+        % (protein_label, len(bad_ids), len(kept_prot))
+    )
+    return len(bad_ids)
+
+
 def _parse_pal2nal_failed_id(err):
     """Parse PAL2NAL stderr/stdout for a sequence ID; return first '>ID' or None."""
     if not err:
@@ -1784,7 +2563,7 @@ def _parse_pal2nal_failed_id(err):
     m = re.search(r">\s*([^\s\n\r>]+)", err)
     if m:
         return m.group(1).strip()
-    m2 = re.search(r"\b(zaire|sudan|bundibugyo|reston|tai)[|][^\s\n\r>]+", err, flags=re.IGNORECASE)
+    m2 = re.search(r"\b(zaire|sudan|bundibugyo|reston|tai|marburg|ravn)[|][^\s\n\r>]+", err, flags=re.IGNORECASE)
     if m2:
         return m2.group(0).strip()
     return None
@@ -1929,18 +2708,23 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
                     SeqIO.write(rec, fout, "fasta")
         if os.path.getsize(combined_cds) == 0:
             continue
-        _translate_cds_fasta(combined_cds, os.path.join(protdir, "protein.fasta"))
+        protein_fasta = os.path.join(protdir, "protein.fasta")
+        _translate_cds_fasta(combined_cds, protein_fasta)
+        _drop_proteins_with_internal_stops(combined_cds, protein_fasta, protein)
+        if os.path.getsize(protein_fasta) == 0 or not list(SeqIO.parse(protein_fasta, "fasta")):
+            print("  %s: no sequences left after stop-codon filter; skipping." % protein)
+            continue
         protein_aln = os.path.join(protdir, "protein_aln.fasta")
         with open(protein_aln, "w") as f:
             r = subprocess.run(
-                ["mafft", "--auto", "--thread", str(min(threads, 32)), os.path.join(protdir, "protein.fasta")],
+                ["mafft", "--auto", "--thread", str(min(threads, 32)), protein_fasta],
                 stdout=f, stderr=subprocess.PIPE, text=True,
             )
             if r.returncode != 0:
                 print("MAFFT failed for %s: %s" % (protein, r.stderr))
                 continue
         cds_aligned = os.path.join(protdir, "cds_aligned.fasta")
-        exclude_for_pal2nal = set()  # GP: drop sequences that cause pep/nuc inconsistency
+        exclude_for_pal2nal = set()  # safety net: drop sequences that still cause pep/nuc inconsistency
         pal2nal_ok = False
         for _ in range(50):
             cds_input = combined_cds
@@ -1992,6 +2776,25 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
             if ok:
                 pal2nal_ok = True
                 if exclude_for_pal2nal:
+                    # Keep protein MSA / unaligned proteins in sync with codon alignment
+                    from Bio import AlignIO
+                    from Bio.Align import MultipleSeqAlignment
+                    def _excluded(eid):
+                        o = eid.split("|", 1)[1] if "|" in eid else eid
+                        for bad in exclude_for_pal2nal:
+                            b = bad.split("|", 1)[1] if "|" in bad else bad
+                            if o == b or o.startswith(b + "/") or b.startswith(o + "/"):
+                                return True
+                        return False
+                    aln_kept = [r for r in AlignIO.read(protein_aln, "fasta") if not _excluded(r.id)]
+                    with open(protein_aln, "w") as f:
+                        AlignIO.write(MultipleSeqAlignment(aln_kept), f, "fasta")
+                    prot_kept = [r for r in SeqIO.parse(protein_fasta, "fasta") if not _excluded(r.id)]
+                    with open(protein_fasta, "w") as f:
+                        SeqIO.write(prot_kept, f, "fasta")
+                    cds_kept = [r for r in SeqIO.parse(combined_cds, "fasta") if not _excluded(r.id)]
+                    with open(combined_cds, "w") as f:
+                        SeqIO.write(cds_kept, f, "fasta")
                     print("  %s: excluded %d sequence(s) with pep/nuc inconsistency, alignment has %d." % (protein, len(exclude_for_pal2nal), len(list(SeqIO.parse(cds_aligned, "fasta")))))
                 break
             if not failed_id and err:
@@ -2040,7 +2843,6 @@ def run_protein_cds_pipeline(outroot_abs, pairs, proteins, base_name=None, min_c
         trim_prot_dir = os.path.join(outroot_abs, "Trimmed", protein)
         os.makedirs(mafft_prot_dir, exist_ok=True)
         os.makedirs(trim_prot_dir, exist_ok=True)
-        protein_fasta = os.path.join(protdir, "protein.fasta")
         for name, src in [
             ("cds.fasta", combined_cds),
             ("protein.fasta", protein_fasta),
@@ -2121,6 +2923,7 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
         "consensus_zaire": "Zaire_ebolavirus", "consensus_sudan": "Sudan_ebolavirus",
         "consensus_reston": "Reston_ebolavirus", "consensus_bundibugyo": "Bundibugyo_ebolavirus",
         "consensus_tai_forest": "Tai_Forest_ebolavirus", "consensus_tai": "Tai_Forest_ebolavirus",
+        "consensus_marburg": "Marburg_virus", "consensus_ravn": "Ravn_virus",
     }
     seen_ids = set()
     combined_records = []
@@ -2235,6 +3038,27 @@ def run_protein_pipeline(source_fasta_dir, proteins_str, do_phylogeny, virus_cho
         _run_mab_escape_report_if_ready(args)
 
 
+def _fasta_species_sort_key(rec):
+    """Sort key: filovirus species order, RefSeq accessions first, then ID."""
+    parts = (rec.id or "").split("/")
+    sp = parts[1] if len(parts) >= 2 else ""
+    # Map variant headers (e.g. Sudan_ebolavirus_-_Nakisamata) to canonical processing name
+    short = PROCESSING_TO_EBOLAS_SPECIES.get(sp) or SPECIES_ID_ALIASES.get(sp)
+    if short:
+        for canon, skey in PROCESSING_TO_EBOLAS_SPECIES.items():
+            if skey == short:
+                sp = canon
+                break
+    acc = parts[0] if parts else (rec.id or "")
+    try:
+        sp_order = ALL_FILOVIRUS_PROCESSING.index(sp)
+    except ValueError:
+        sp_order = 100
+    # Prefer RefSeq (NC_) within a species so progressive MAFFT starts from a curated genome
+    ref_rank = 0 if acc.startswith("NC_") else 1
+    return (sp_order, ref_rank, rec.id or "")
+
+
 def run_alignment_pipeline(source_fasta_dir, threads=1):
     """
     Build Alignment folder: Alignment/FASTA (combined), Alignment/MAFFT, Alignment/Trimmed.
@@ -2259,6 +3083,8 @@ def run_alignment_pipeline(source_fasta_dir, threads=1):
     for fasta in os.listdir(source_fasta_dir):
         if not fasta.endswith(('.fasta', '.fa')) or fasta == "Ebola_Combined.fasta":
             continue
+        if fasta.startswith("marburg_lineage"):
+            continue
         fasta_path = os.path.join(source_fasta_dir, fasta)
         for rec in SeqIO.parse(fasta_path, "fasta"):
             n_read += 1
@@ -2267,17 +3093,43 @@ def run_alignment_pipeline(source_fasta_dir, threads=1):
                 continue
             seen_ids.add(rec.id)
             combined_records.append(rec)
+
+    # Species-sorted order: better progressive guide tree + readable MSA blocks
+    combined_records.sort(key=_fasta_species_sort_key)
+    species_seen = set()
+    for rec in combined_records:
+        parts = (rec.id or "").split("/")
+        if len(parts) >= 2:
+            species_seen.add(parts[1])
+    multi_species = len(species_seen) > 1
+
     with open(combined_fasta, "w") as outfile:
         SeqIO.write(combined_records, outfile, "fasta")
     if n_read > len(combined_records):
-        print("Combined FASTA: %d unique sequences (skipped %d duplicate IDs). Source FASTA unchanged." % (len(combined_records), n_read - len(combined_records)))
-    print("Combined FASTA file created")
+        print(
+            "Combined FASTA: %d unique sequences (skipped %d duplicate IDs). Source FASTA unchanged."
+            % (len(combined_records), n_read - len(combined_records))
+        )
+    print("Combined FASTA file created (%d sequences, %d species)" % (len(combined_records), len(species_seen)))
 
     aligned_fasta = os.path.join(mafft_dir, "Ebola_Combined_aligned.fasta")
-    print("Running MAFFT alignment...")
     mafft_thread = "-1" if (threads <= 0) else str(min(threads, 32))
-    mafft_cmd = f"mafft --thread {mafft_thread} --auto {combined_fasta} > {aligned_fasta}"
-    result = subprocess.run(mafft_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+    # Multi-species WGAs: FFT-NS-i (iterative) beats --auto's FFT-NS-2 for distant taxa.
+    # Single-species: --auto is fine (often FFT-NS-2 on large n, which is enough within-species).
+    if multi_species:
+        print(
+            "Running MAFFT (multi-species: FFT-NS-i, --retree 2 --maxiterate 100)..."
+        )
+        mafft_cmd = [
+            "mafft", "--thread", mafft_thread,
+            "--retree", "2", "--maxiterate", "100",
+            combined_fasta,
+        ]
+    else:
+        print("Running MAFFT alignment...")
+        mafft_cmd = ["mafft", "--thread", mafft_thread, "--auto", combined_fasta]
+    with open(aligned_fasta, "w") as out_fh:
+        result = subprocess.run(mafft_cmd, stdout=out_fh, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
         print(f"Error during MAFFT alignment: {result.stderr}")
         return None, False
@@ -2285,8 +3137,8 @@ def run_alignment_pipeline(source_fasta_dir, threads=1):
 
     trimmed_fasta = os.path.join(trimmed_dir, "Ebola_trimmed.fasta")
     print("Running TrimAl...")
-    trimal_cmd = f"trimal -in {aligned_fasta} -out {trimmed_fasta} -automated1"
-    result = subprocess.run(trimal_cmd, shell=True, stderr=subprocess.PIPE, text=True)
+    trimal_cmd = ["trimal", "-in", aligned_fasta, "-out", trimmed_fasta, "-automated1"]
+    result = subprocess.run(trimal_cmd, stderr=subprocess.PIPE, text=True)
     if result.returncode != 0:
         print(f"Error during TrimAl: {result.stderr}")
         return None, False
