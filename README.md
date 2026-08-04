@@ -1,6 +1,6 @@
 # EbolaSeq
 
-EbolaSeq is a command-line tool that simplifies the process of analyzing Ebola virus sequences. It automates the complete workflow from downloading sequences to creating phylogenetic trees. The tool retrieves Ebola virus sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees. It also includes in silico screening of GP epitope changes relevant to mAb114 (Ebanga / ansuvimab), REGN-EB3 (Inmazeb), and MBP134 (ADI-15878 + ADI-23774) via the optional mAb escape report.
+EbolaSeq is a command-line tool that simplifies analyzing Ebola and Marburg virus sequences. It automates the workflow from downloading sequences to creating phylogenetic trees. The tool retrieves sequences from NCBI GenBank, processes them according to user specifications, performs multiple sequence alignment, and generates phylogenetic trees. For Ebola, it also includes optional in silico screening of GP epitope changes relevant to mAb114 (Ebanga / ansuvimab), REGN-EB3 (Inmazeb), and MBP134 (ADI-15878 + ADI-23774) via the mAb escape report.
 
 ## Installation
 
@@ -52,14 +52,18 @@ EbolaSeq can be run in two modes:
 
 **`-o`, `--output-dir`** — Output directory for results
 
-**`--virus`** — Virus / species
+**`--virus`** — Virus / set
 
 - 1 = Zaire ebolavirus
 - 2 = Sudan ebolavirus
 - 3 = Bundibugyo ebolavirus
 - 4 = Tai Forest ebolavirus
 - 5 = Reston ebolavirus
-- 6 = Pan-Ebola: all 5 species
+- 6 = Pan-Ebola: all 5 ebolaviruses
+- 7 = Marburg virus
+- 8 = Ravn virus 
+- 9 = Both Marburg viruses
+- 10 = Pan-filovirus: all ebolaviruses + both Marburg viruses (no external outgroup for WGS; midpoint-root; prefer protein alignment)
 - Comma-separated = multiple species (e.g. 1,2 for Zaire+Sudan; 1,2,3 for Zaire+Sudan+Bundibugyo)
 
 **`--genome`** — Genome completeness
@@ -99,6 +103,8 @@ EbolaSeq can be run in two modes:
 - `--c_r` = Reston
 - `--c_b` = Bundibugyo
 - `--c_t` = Tai Forest
+- `--c_m` = Marburg virus
+- `--c_rav` = Ravn virus
 
 **`--alignment`, `-a`** — Alignment type
 
@@ -125,9 +131,9 @@ EbolaSeq can be run in two modes:
 
 **`-t`, `--threads`** — Threads for minimap2 and MAFFT (default 1). E.g. `-t 64` on a 64-core node. 0 = use all CPUs.
 
-**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134 (see [docs](docs/README.md)).
+**`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134 (Ebola only; skipped for Marburg-only runs; see [docs](docs/README.md)).
 
-**`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t` FASTA(s).
+**`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t/--c_m/--c_rav` FASTA(s).
 
 **`--remove`** — Path to file listing sequence IDs/headers to exclude
 
@@ -148,6 +154,12 @@ ebolaseq -o my_analysis --virus 6 --genome 1 --host 3 --metadata 4 \
 # Consensus-only: no download, just analyze your own FASTA(s)
 ebolaseq -o my_analysis --only --c_b consensus_bundibugyo.fasta --alignment 2 -pr GP --mab-escape-report
 
+# Ravn virus, complete genomes, protein GP + phylogeny
+ebolaseq -o my_analysis --virus 8 --genome 1 --host 3 --metadata 4 --alignment 2 -pr GP --phylogeny
+
+# Both Marburg viruses, whole-genome + phylogeny (no ebolavirus outgroup; midpoint-root)
+ebolaseq -o my_analysis --virus 9 --genome 1 --host 1 --metadata 4 --alignment 1 --phylogeny
+
 # Exclude specific sequences
 ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove exclude.txt
 ```
@@ -164,6 +176,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 
 - Use `--remove` with a list of IDs to exclude cell-culture, lab-adapted, or other non-natural sequences.
 - For large Zaire trees, consider rooting with 1976 Yambuku outbreak sequences.
+- Marburg virus and Ravn virus share one NCBI species (`Orthomarburgvirus marburgense`). EbolaSeq downloads the full Orthomarburgvirus set when either is selected, then assigns lineage by minimap2 % similarity to RefSeqs NC_001608 (Marburg) vs NC_024781 (Ravn): call the higher one if they differ by ≥10 percentage points (else GenBank text). See `FASTA/marburg_lineage_assignment.tsv`.
 
 ## Dependencies
 
