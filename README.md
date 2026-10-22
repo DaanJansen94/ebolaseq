@@ -59,12 +59,13 @@ EbolaSeq can be run in two modes:
 - 3 = Bundibugyo ebolavirus
 - 4 = Tai Forest ebolavirus
 - 5 = Reston ebolavirus
-- 6 = Pan-Ebola: all 5 ebolaviruses
-- 7 = Marburg virus
-- 8 = Ravn virus 
-- 9 = Both Marburg viruses
-- 10 = Pan-filovirus: all ebolaviruses + both Marburg viruses (no external outgroup for WGS; midpoint-root; prefer protein alignment)
-- Comma-separated = multiple species (e.g. 1,2 for Zaire+Sudan; 1,2,3 for Zaire+Sudan+Bundibugyo)
+- 6 = Bombali ebolavirus
+- 7 = Pan-Ebola: all 6 ebolaviruses
+- 8 = Marburg virus
+- 9 = Ravn virus
+- 10 = Both Marburg viruses
+- 11 = Pan-filovirus: all ebolaviruses + both Marburg viruses (no external outgroup for WGS; midpoint-root; prefer protein alignment)
+- Comma-separated = multiple species (e.g. 1,2 for Zaire+Sudan; 1,6 for Zaire+Bombali)
 
 **`--genome`** — Genome completeness
 
@@ -103,6 +104,7 @@ EbolaSeq can be run in two modes:
 - `--c_r` = Reston
 - `--c_b` = Bundibugyo
 - `--c_t` = Tai Forest
+- `--c_bo` = Bombali
 - `--c_m` = Marburg virus
 - `--c_rav` = Ravn virus
 
@@ -133,7 +135,7 @@ EbolaSeq can be run in two modes:
 
 **`--mab-escape-report`** — Creates the GP mAb escape report in `Escape/` for Ebanga, Inmazeb, and MBP134 (Ebola only; skipped for Marburg-only runs; see [docs](docs/README.md)).
 
-**`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t/--c_m/--c_rav` FASTA(s).
+**`--only`** — Consensus-only mode: skip downloading and run using only `--c_z/--c_s/--c_r/--c_b/--c_t/--c_bo/--c_m/--c_rav` FASTA(s).
 
 **`--remove`** — Path to file listing sequence IDs/headers to exclude
 
@@ -155,10 +157,10 @@ ebolaseq -o my_analysis --virus 6 --genome 1 --host 3 --metadata 4 \
 ebolaseq -o my_analysis --only --c_b consensus_bundibugyo.fasta --alignment 2 -pr GP --mab-escape-report
 
 # Ravn virus, complete genomes, protein GP + phylogeny
-ebolaseq -o my_analysis --virus 8 --genome 1 --host 3 --metadata 4 --alignment 2 -pr GP --phylogeny
+ebolaseq -o my_analysis --virus 9 --genome 1 --host 3 --metadata 4 --alignment 2 -pr GP --phylogeny
 
 # Both Marburg viruses, whole-genome + phylogeny (no ebolavirus outgroup; midpoint-root)
-ebolaseq -o my_analysis --virus 9 --genome 1 --host 1 --metadata 4 --alignment 1 --phylogeny
+ebolaseq -o my_analysis --virus 10 --genome 1 --host 1 --metadata 4 --alignment 1 --phylogeny
 
 # Exclude specific sequences
 ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove exclude.txt
