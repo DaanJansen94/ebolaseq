@@ -6,6 +6,7 @@ import os
 import re
 import datetime
 import time
+import hashlib
 from urllib.error import HTTPError, URLError
 import argparse
 import shutil
@@ -1016,74 +1017,221 @@ def _installed_ebolaseq_module_path():
         return os.path.abspath(__file__)
 
 
-def _find_ebolaseq_source_root():
-    """Locate a local ebolaseq checkout (pyproject.toml with name ebolaseq)."""
+def _is_ebolaseq_project_root(path):
+    """True if path is an ebolaseq checkout (pyproject name + package module)."""
+    pj = os.path.join(path, "pyproject.toml")
+    mod = os.path.join(path, "ebolaseq", "ebolaseq.py")
+    if not (os.path.isfile(pj) and os.path.isfile(mod)):
+        return False
+    try:
+        with open(pj, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return False
+    return 'name = "ebolaseq"' in text or "name = 'ebolaseq'" in text
+
+
+def _source_module_mtime(root):
+    mod = os.path.join(root, "ebolaseq", "ebolaseq.py")
+    try:
+        return os.path.getmtime(mod)
+    except OSError:
+        return 0.0
+
+
+def _discover_ebolaseq_source_roots():
+    """
+    Find all local ebolaseq checkouts.
+
+    Searches cwd and parents, the installed module's parents, and one level of
+    subdirectories of those (so e.g. cwd under Eboladeq_test/ still finds both
+    Eboladeq_test/ebolaseq and Projects/ebolaseq).
+    """
     env = os.environ.get("EBOLASEQ_SOURCE")
+    seeds = []
     if env:
-        root = os.path.abspath(env)
-        if os.path.isfile(os.path.join(root, "pyproject.toml")):
-            return root
-    candidates = [os.getcwd()]
+        seeds.append(os.path.abspath(env))
+    seeds.append(os.getcwd())
     here = os.path.dirname(os.path.abspath(__file__))
-    d = here
-    for _ in range(5):
-        candidates.append(d)
-        parent = os.path.dirname(d)
-        if parent == d:
-            break
-        d = parent
-    seen = set()
-    for start in candidates:
+    seeds.append(here)
+
+    roots = []
+    seen_dirs = set()
+    seen_roots = set()
+
+    def _consider(path):
+        path = os.path.abspath(path)
+        if path in seen_roots:
+            return
+        if _is_ebolaseq_project_root(path):
+            seen_roots.add(path)
+            roots.append(path)
+
+    for start in seeds:
         d = os.path.abspath(start)
-        if d in seen:
-            continue
-        seen.add(d)
-        for _ in range(8):
-            pj = os.path.join(d, "pyproject.toml")
-            if os.path.isfile(pj):
-                try:
-                    with open(pj, encoding="utf-8") as f:
-                        text = f.read()
-                    if 'name = "ebolaseq"' in text or "name = 'ebolaseq'" in text:
-                        return d
-                except OSError:
-                    pass
+        for _ in range(10):
+            if d in seen_dirs:
+                break
+            seen_dirs.add(d)
+            _consider(d)
+            try:
+                for name in os.listdir(d):
+                    child = os.path.join(d, name)
+                    if os.path.isdir(child):
+                        _consider(child)
+            except OSError:
+                pass
             parent = os.path.dirname(d)
             if parent == d:
                 break
             d = parent
-    return None
+    return roots
+
+
+def _find_ebolaseq_source_root(quiet=False):
+    """
+    Locate the local ebolaseq checkout to install from.
+
+    If several checkouts exist, prefer EBOLASEQ_SOURCE when set; otherwise the
+    tree with the newest ebolaseq/ebolaseq.py (avoids reinstalling a stale copy
+    under e.g. Eboladeq_test/ebolaseq/).
+    """
+    env = os.environ.get("EBOLASEQ_SOURCE")
+    if env:
+        root = os.path.abspath(env)
+        if _is_ebolaseq_project_root(root):
+            return root
+        print("EBOLASEQ_SOURCE=%s is not a valid ebolaseq project root." % root)
+        sys.exit(1)
+
+    roots = _discover_ebolaseq_source_roots()
+    if not roots:
+        return None
+    roots.sort(key=_source_module_mtime, reverse=True)
+    chosen = roots[0]
+    if len(roots) > 1 and not quiet:
+        print("Note: found %d ebolaseq checkouts; using the newest ebolaseq.py:" % len(roots))
+        for r in roots:
+            mark = "  <-- selected" if r == chosen else ""
+            print(
+                "  %s  (mtime %s)%s"
+                % (r, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(_source_module_mtime(r))), mark)
+            )
+    return chosen
+
+
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _site_packages_module_path_clean():
+    """
+    Path/size/sha of ebolaseq.ebolaseq as imported with cwd=/tmp so a local
+    checkout does not shadow site-packages.
+    Returns (path, size, sha256) or (None, None, None).
+    """
+    code = (
+        "import ebolaseq.ebolaseq as m, os, hashlib\n"
+        "p = os.path.abspath(m.__file__)\n"
+        "h = hashlib.sha256()\n"
+        "with open(p, 'rb') as f:\n"
+        "    for c in iter(lambda: f.read(1024*1024), b''):\n"
+        "        h.update(c)\n"
+        "print(p)\n"
+        "print(os.path.getsize(p))\n"
+        "print(h.hexdigest())\n"
+    )
+    try:
+        out = subprocess.check_output(
+            [sys.executable, "-c", code],
+            cwd="/tmp",
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except subprocess.CalledProcessError as e:
+        print("Could not import installed ebolaseq for verification:\n%s" % (e.output or e))
+        return None, None, None
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    if len(lines) < 3:
+        return None, None, None
+    return lines[0], int(lines[1]), lines[2]
 
 
 def upgrade_installed_ebolaseq(editable=False):
     """pip install --force-reinstall from local source (overwrites older site-packages)."""
-    root = _find_ebolaseq_source_root()
+    root = _find_ebolaseq_source_root(quiet=False)
     if not root:
         print("Cannot find ebolaseq source directory.")
         print("  cd into your ebolaseq clone, or: export EBOLASEQ_SOURCE=/path/to/ebolaseq")
         sys.exit(1)
-    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--force-reinstall"]
+    source_mod = os.path.join(root, "ebolaseq", "ebolaseq.py")
+    source_sha = _sha256_file(source_mod)
+
+    # Stale build/ can make pip package an older copy of the module.
+    build_dir = os.path.join(root, "build")
+    if os.path.isdir(build_dir):
+        print("Removing stale build/ under %s" % root)
+        shutil.rmtree(build_dir, ignore_errors=True)
+
+    cmd = [
+        sys.executable, "-m", "pip", "install",
+        "--upgrade", "--force-reinstall", "--no-cache-dir",
+    ]
     if editable:
         cmd.append("-e")
     cmd.append(root)
     print("Reinstalling ebolaseq (overwrites previous install in this environment):")
     print("  %s" % " ".join(cmd))
     subprocess.check_call(cmd)
+
+    inst_path, inst_size, inst_sha = _site_packages_module_path_clean()
     print("Installed from: %s" % root)
-    print("Now using: %s" % _installed_ebolaseq_module_path())
+    print("Now using: %s" % (inst_path or _installed_ebolaseq_module_path()))
+    if not inst_path or inst_sha != source_sha:
+        print(
+            "ERROR: installed ebolaseq.py does not match source after upgrade.\n"
+            "  source: %s\n"
+            "    sha256=%s size=%d\n"
+            "  installed: %s\n"
+            "    sha256=%s size=%s\n"
+            "  Tip: export EBOLASEQ_SOURCE=%s && ebolaseq --upgrade"
+            % (
+                source_mod,
+                source_sha,
+                os.path.getsize(source_mod),
+                inst_path,
+                inst_sha,
+                inst_size,
+                root,
+            )
+        )
+        sys.exit(1)
+    print("Upgrade verified (installed ebolaseq.py matches source).")
 
 
 def _warn_if_stale_install():
-    installed = _installed_ebolaseq_module_path()
-    root = _find_ebolaseq_source_root()
-    if not root or not installed:
+    root = _find_ebolaseq_source_root(quiet=True)
+    if not root:
         return
     source_mod = os.path.join(root, "ebolaseq", "ebolaseq.py")
-    if os.path.isfile(source_mod) and os.path.getmtime(source_mod) > os.path.getmtime(installed):
+    if not os.path.isfile(source_mod):
+        return
+    inst_path, _inst_size, inst_sha = _site_packages_module_path_clean()
+    if not inst_path:
+        return
+    try:
+        source_sha = _sha256_file(source_mod)
+    except OSError:
+        return
+    if inst_sha != source_sha:
         print(
-            "Note: newer ebolaseq source at %s than the installed copy.\n"
-            "      Run: ebolaseq --upgrade   (from that directory, or set EBOLASEQ_SOURCE)"
-            % root
+            "Note: newer/different ebolaseq source at %s than the installed copy.\n"
+            "      Run: ebolaseq --upgrade   (from that directory, or set EBOLASEQ_SOURCE=%s)"
+            % (root, root)
         )
 
 
@@ -1657,6 +1805,17 @@ def main(args, non_interactive=False):
                 os.remove(output_file)
             return
 
+    # Complete-genome mode: drop short CDS/mRNA falsely titled "complete sequence" (e.g. AY526098).
+    if genome_choice == '1':
+        records, _dropped_short = filter_complete_genomes_by_length(
+            records, virus_choices, marburg_lineage_by_id
+        )
+        if not records:
+            print("\nNo sequences left after complete-genome length filter.")
+            if os.path.exists(output_file):
+                os.remove(output_file)
+            return
+
     # Put all genomes in RefSeq forward orientation (fixes reverse-complement deposits e.g. KU059750).
     orient_records_to_reference(
         records,
@@ -2014,11 +2173,28 @@ def download_sequences(virus_choices, genome_choice, host_choice, metadata_choic
                     time.sleep(sleep_s)
                     continue
                 raise
+            except RuntimeError as e:
+                # Bio.Entrez raises this when NCBI returns error XML (e.g. "Search Backend failed")
+                msg = str(e)
+                last_err = e
+                if "Search Backend failed" in msg or "Backend failed" in msg or "Resource temporarily unavailable" in msg:
+                    sleep_s = min(60, 2 ** attempt)
+                    print("NCBI Entrez error (%s); retrying in %ss (attempt %s/6)..." % (msg.strip()[:80], sleep_s, attempt))
+                    time.sleep(sleep_s)
+                    continue
+                raise
         raise last_err
 
-    handle = _entrez_call(Entrez.esearch, db="nucleotide", term=query, retmax=10000)
-    record = Entrez.read(handle)
-    handle.close()
+    def _entrez_esearch_ids(term, retmax=10000):
+        def _search_and_read():
+            handle = Entrez.esearch(db="nucleotide", term=term, retmax=retmax)
+            try:
+                return Entrez.read(handle)
+            finally:
+                handle.close()
+        return _entrez_call(_search_and_read)
+
+    record = _entrez_esearch_ids(query, retmax=10000)
     id_list = record["IdList"]
 
     # Remove reference IDs if they appear in search results (no refs added to download; refs only used as outgroup when --phylogeny)
@@ -2066,8 +2242,53 @@ def get_reference_length(virus_type):
         'Marburg': 19112,
         'Ravn': 19114,
     }
+    short_to_ref = {
+        'zaire': 'Zaire', 'sudan': 'Sudan', 'bundibugyo': 'Bundibugyo',
+        'tai_forest': 'Tai Forest', 'reston': 'Reston',
+        'marburg': 'Marburg', 'ravn': 'Ravn',
+    }
     key = PROCESSING_TO_REF_KEY.get(virus_type, virus_type)
+    if key not in reference_lengths:
+        short = PROCESSING_TO_EBOLAS_SPECIES.get(virus_type) or SPECIES_ID_ALIASES.get(virus_type)
+        if short:
+            key = short_to_ref.get(short, key)
     return reference_lengths.get(key, 18959)
+
+
+# NCBI "complete genome/sequence" titles can include CDS/mRNA (e.g. AY526098 GP ~2.2 kb).
+COMPLETE_GENOME_MIN_FRACTION = 0.90
+
+
+def filter_complete_genomes_by_length(records, virus_choices, marburg_lineage_by_id=None,
+                                      min_fraction=COMPLETE_GENOME_MIN_FRACTION):
+    """
+    Keep only records whose length is >= min_fraction of their species RefSeq length.
+    Used when genome completeness option is 'complete only' (genome_choice == '1').
+    Returns (kept_records, dropped_info) where dropped_info is a list of
+    (id, length, ref_length, processing_name).
+    """
+    kept = []
+    dropped = []
+    for rec in records:
+        proc = resolve_record_processing_name(rec, virus_choices, marburg_lineage_by_id)
+        ref_len = get_reference_length(proc)
+        min_len = int(ref_len * min_fraction)
+        if len(rec.seq) >= min_len:
+            kept.append(rec)
+        else:
+            dropped.append((rec.id, len(rec.seq), ref_len, proc or "?"))
+    if dropped:
+        print(
+            "Filtered %d sequence(s) below %.0f%% of species RefSeq length "
+            "(complete-genome mode; NCBI title alone is not enough):"
+            % (len(dropped), min_fraction * 100)
+        )
+        for did, L, ref, proc in dropped:
+            print(
+                "  %s  %d nt (%.1f%% of %s RefSeq %d nt)"
+                % (did, L, 100.0 * L / ref if ref else 0.0, proc, ref)
+            )
+    return kept, dropped
 
 def summarize_locations(records, threshold, virus_choice_or_list):
     """virus_choice_or_list: single species name or list of species (for pan/multi). Counts all records so summary matches FASTA/location.txt."""
