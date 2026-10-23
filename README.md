@@ -184,7 +184,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 
 - Python ≥ 3.9
 - Biopython ≥ 1.81, openpyxl ≥ 3.1 (mAb escape Excel export)
-- MAFFT, TrimAl, IQTree2  
+- MAFFT, TrimAl, IQTree2 
 - For protein alignment: minimap2, pal2nal
 
 ## Citation
@@ -192,7 +192,7 @@ ebolaseq -o my_analysis --virus 1 --genome 1 --host 1 --metadata 4 --remove excl
 If you use EbolaSeq in your research, please cite:
 
 ```
-Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.2.3). Zenodo. https://doi.org/10.5281/zenodo.14851686
+Jansen, D., & Vercauteren, K. (2025). EbolaSeq: A Command-Line Tool for Downloading, Processing, and Analyzing Ebola Virus Sequences for Phylogenetic Analysis (v0.2.3). Zenodo. https://doi.org/10.5281/zenodo.23561946
 ```
 
 ## License
